@@ -1,0 +1,132 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper profil pengguna & RBAC (superadmin, admin, karyawan)
+    // Akun Firebase Authentication yang belum memiliki dokumen di /users/{uid} otomatis dianggap Superadmin.
+    function hasUserDoc() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function userDocData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isActiveUser() {
+      return request.auth != null && (!hasUserDoc() || userDocData().active != false);
+    }
+
+    function isSuperAdmin() {
+      return isActiveUser() && (!hasUserDoc() || userDocData().role == 'superadmin');
+    }
+
+    function isAdmin() {
+      return isActiveUser() && hasUserDoc() && userDocData().role == 'admin';
+    }
+
+    function isKaryawan() {
+      return isActiveUser() && hasUserDoc() && userDocData().role == 'karyawan';
+    }
+
+    function isAdminOrSuper() {
+      return isSuperAdmin() || isAdmin();
+    }
+
+    function isNonEmptyString(val) {
+      return val is string && val.size() > 0 && val.size() <= 200;
+    }
+
+    // Karyawan hanya boleh memperbarui status selesai / progres sablon pada pesanan
+    // dan hanya boleh membatalkan status selesai jika dirinya yang menandai selesai.
+    function karyawanPesananUpdateAllowed() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'statusSelesai',
+          'completedAt',
+          'completedByUid',
+          'completedByName',
+          'sisiProgress',
+          'updatedAt'
+        ])
+        && (
+          resource.data.statusSelesai != true
+          || request.resource.data.statusSelesai == true
+          || resource.data.completedByUid == request.auth.uid
+        );
+    }
+
+    // Karyawan hanya boleh memperbarui checklist print / status selesai pada sablon
+    // dan hanya boleh membatalkan status selesai jika dirinya yang menandai selesai.
+    function karyawanSablonUpdateAllowed() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'perulanganChecks',
+          'perulanganCheckMeta',
+          'statusSelesai',
+          'completedAt',
+          'completedByUid',
+          'completedByName',
+          'updatedAt'
+        ])
+        && (
+          resource.data.statusSelesai != true
+          || request.resource.data.statusSelesai == true
+          || resource.data.completedByUid == request.auth.uid
+        );
+    }
+
+    // Koleksi Akun Karyawan & Admin (hanya Superadmin yang boleh membuat/mengubah)
+    match /users/{userId} {
+      allow read: if isActiveUser();
+      allow create, update, delete: if isSuperAdmin();
+    }
+
+    // Koleksi Pengaturan Aplikasi (hanya Superadmin yang boleh mengubah)
+    match /app_settings/{settingId} {
+      allow read: if isActiveUser();
+      allow create, update, delete: if isSuperAdmin();
+    }
+
+    // Koleksi Log Aktivitas (semua akun aktif dapat menulis log miliknya, hanya Superadmin dapat membaca)
+    match /activity_logs/{logId} {
+      allow read: if isSuperAdmin();
+      allow create: if isActiveUser()
+        && request.resource.data.actorUid == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    // Master Data Produk (namaProduk + array namaSisi minimal 1 item)
+    match /master_produk/{produkId} {
+      allow read, delete: if isActiveUser();
+      allow create, update: if isActiveUser()
+        && isNonEmptyString(request.resource.data.namaProduk)
+        && request.resource.data.namaSisi is list
+        && request.resource.data.namaSisi.size() > 0
+        && request.resource.data.namaSisi.size() <= 50;
+    }
+
+    // Master Data Expedisi (namaExpedisi)
+    match /master_expedisi/{expedisiId} {
+      allow read, delete: if isActiveUser();
+      allow create, update: if isActiveUser()
+        && isNonEmptyString(request.resource.data.namaExpedisi);
+    }
+
+    // Koleksi Pesanan (Karyawan read-only di menu Pesanan; hanya boleh update status/progres operasional)
+    match /pesanan/{pesananId} {
+      allow read: if isActiveUser();
+      allow create, delete: if isAdminOrSuper();
+      allow update: if isAdminOrSuper() || (isKaryawan() && karyawanPesananUpdateAllowed());
+    }
+
+    // Koleksi Manajemen Sablon (Karyawan hanya boleh checklist/selesai/batal selesai milik sendiri)
+    match /sablon/{sablonId} {
+      allow read: if isActiveUser();
+      allow create, delete: if isAdminOrSuper();
+      allow update: if isAdminOrSuper() || (isKaryawan() && karyawanSablonUpdateAllowed());
+    }
+
+    // Blokir seluruh akses ke koleksi lain secara default
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

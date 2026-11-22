@@ -1,0 +1,36 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Hanya admin yang sudah login via Firebase Authentication yang diizinkan.
+    // Opsional: Batasi email admin tertentu dengan mengaktifkan whitelist di bawah.
+    function isAdmin() {
+      return request.auth != null;
+      // && request.auth.token.email in ['admin@zcpstore.com'];
+    }
+
+    // Validasi tipe file (PNG, JPG/JPEG, PDF) dan ukuran maksimal 15 MB
+    function isValidFile() {
+      return request.resource != null
+        && request.resource.size < 15 * 1024 * 1024
+        && request.resource.contentType.matches('image/png|image/jpeg|application/pdf');
+    }
+
+    // File desain pesanan (disiapkan untuk Tahap 2)
+    match /designs/{orderId}/{fileName} {
+      allow read, delete: if isAdmin();
+      allow create, update: if isAdmin() && isValidFile();
+    }
+
+    // File sablon (disiapkan untuk Tahap 2)
+    match /sablon/{sablonId}/{fileName} {
+      allow read, delete: if isAdmin();
+      allow create, update: if isAdmin() && isValidFile();
+    }
+
+    // Blokir seluruh path lain secara default
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

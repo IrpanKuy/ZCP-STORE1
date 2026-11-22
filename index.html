@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ZCP STORE — Manajemen Sablon</title>
+  <link rel="icon" type="image/jpeg" href="./zcpstore.jpg" />
+
+  <!-- Terapkan tema tersimpan sebelum halaman dirender untuk menghindari kedipan warna -->
+  <script>
+    (function () {
+      try {
+        var saved = localStorage.getItem('zcp_theme');
+        if (saved === 'dark' || saved === 'light') {
+          document.documentElement.dataset.theme = saved;
+        } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+          document.documentElement.dataset.theme = 'dark';
+        }
+      } catch (e) {}
+    })();
+  </script>
+
+  <!-- Google Fonts & Material Symbols -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+    rel="stylesheet"
+  />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0"
+    rel="stylesheet"
+  />
+
+  <!-- App Stylesheet -->
+  <link rel="stylesheet" href="./css/style.css" />
+</head>
+<body>
+  <div id="app" v-cloak>
+    <!-- Splash Loader saat mengecek sesi login -->
+    <div v-if="authLoading" class="app-splash">
+      <div class="spinner spinner-lg"></div>
+      <div>Memuat ZCP STORE...</div>
+    </div>
+
+    <!-- Halaman Login Admin -->
+    <login-view
+      v-else-if="!user"
+      :firebase-ready="firebaseReady"
+      :theme="theme"
+      @toggle-theme="toggleTheme"
+      @notify="addToast"
+    ></login-view>
+
+    <!-- Layout Utama Setelah Login -->
+    <div v-else class="app-shell">
+      <app-sidebar
+        :current-page="currentPage"
+        :open="sidebarOpen"
+        :user-email="user.email"
+        :user-name="user.nama"
+        :user-role="user.role"
+        :pesanan-count="activePesananCount"
+        :active-pesanan-count="activePesananCount"
+        :sablon-count="activeSablonCount"
+        :produk-count="produkList.length"
+        :expedisi-count="expedisiList.length"
+        :users-count="usersList.length"
+        @navigate="navigatePage"
+        @close="sidebarOpen = false"
+        @logout="requestLogout"
+      ></app-sidebar>
+
+      <div class="main-wrapper">
+        <app-navbar
+          :page-title="activePageMeta.title"
+          :breadcrumb="activePageMeta.breadcrumb"
+          :theme="theme"
+          :user-email="user.email"
+          :user-name="user.nama"
+          :user-role="user.role"
+          @toggle-sidebar="sidebarOpen = !sidebarOpen"
+          @toggle-theme="toggleTheme"
+          @logout="requestLogout"
+        ></app-navbar>
+
+        <main>
+          <dashboard-view
+            v-if="currentPage === 'dashboard'"
+            :pesanan-list="pesananList"
+            :produk-list="produkList"
+            :expedisi-list="expedisiList"
+            :sablon-list="sablonList"
+            :loading="loadingPesanan"
+            :drive-ready="driveReady"
+            @navigate="navigatePage"
+          ></dashboard-view>
+
+          <pesanan-view
+            v-else-if="currentPage === 'pesanan'"
+            :pesanan-list="pesananList"
+            :produk-list="produkList"
+            :expedisi-list="expedisiList"
+            :loading="loadingPesanan"
+            :drive-ready="driveReady"
+            :user-role="user.role"
+            :has-more="hasMorePesanan"
+            :default-page-size="defaultPageSize"
+            @notify="addToast"
+            @request-confirm="openConfirm"
+            @go-master="navigatePage('master-data')"
+            @load-more="loadMorePesanan"
+          ></pesanan-view>
+
+          <operasional-view
+            v-else-if="currentPage === 'operasional'"
+            :pesanan-list="pesananList"
+            :sablon-list="sablonList"
+            :loading="loadingPesanan"
+            :user-role="user.role"
+            :current-user-uid="user.uid"
+            :has-more="hasMorePesanan"
+            :default-page-size="defaultPageSize"
+            @notify="addToast"
+            @request-confirm="openConfirm"
+            @go-pesanan="navigatePage('pesanan')"
+            @load-more="loadMorePesanan"
+          ></operasional-view>
+
+          <sablon-view
+            v-else-if="currentPage === 'sablon'"
+            :sablon-list="sablonList"
+            :pesanan-list="pesananList"
+            :loading="loadingSablon"
+            :drive-ready="driveReady"
+            :user-role="user.role"
+            :current-user-uid="user.uid"
+            :has-more="hasMoreSablon"
+            :default-page-size="defaultPageSize"
+            @notify="addToast"
+            @request-confirm="openConfirm"
+            @go-pesanan="navigatePage('pesanan')"
+            @load-more="loadMoreSablon"
+          ></sablon-view>
+
+          <master-data-view
+            v-else-if="currentPage === 'master-data'"
+            :produk-list="produkList"
+            :expedisi-list="expedisiList"
+            :loading-produk="loadingProduk"
+            :loading-expedisi="loadingExpedisi"
+            :default-page-size="defaultPageSize"
+            @notify="addToast"
+            @request-confirm="openConfirm"
+            @refresh-produk="loadMasterProduk"
+            @refresh-expedisi="loadMasterExpedisi"
+          ></master-data-view>
+
+          <akun-karyawan-view
+            v-else-if="currentPage === 'akun-karyawan' && user.role === 'superadmin'"
+            :users-list="usersList"
+            :current-user-uid="user.uid"
+            :loading="loadingUsers"
+            :default-page-size="defaultPageSize"
+            @notify="addToast"
+            @request-confirm="openConfirm"
+            @refresh="loadUsers(true)"
+          ></akun-karyawan-view>
+
+          <activity-log-view
+            v-else-if="currentPage === 'log-aktivitas' && user.role === 'superadmin'"
+            :logs-list="logsList"
+            :users-list="usersList"
+            :loading="loadingLogs"
+            :has-more="hasMoreLogs"
+            :loading-more="loadingMoreLogs"
+            :default-page-size="defaultPageSize"
+            @refresh="loadLogs(true)"
+            @load-more="loadLogs(false)"
+          ></activity-log-view>
+
+          <pengaturan-view
+            v-else-if="currentPage === 'pengaturan' && user.role === 'superadmin'"
+            :default-page-size="defaultPageSize"
+            :user-profile="user"
+            :theme="theme"
+            @notify="addToast"
+            @toggle-theme="toggleTheme"
+            @profile-updated="onProfileUpdated"
+            @settings-updated="onSettingsUpdated"
+          ></pengaturan-view>
+
+          <coming-soon-view
+            v-else
+            :page-key="currentPage"
+            @go-dashboard="navigatePage('dashboard')"
+          ></coming-soon-view>
+        </main>
+      </div>
+    </div>
+
+    <!-- Komponen Global -->
+    <toast-container
+      :toasts="toasts"
+      @dismiss="dismissToast"
+    ></toast-container>
+
+    <confirm-modal
+      :visible="confirmState.visible"
+      :title="confirmState.title"
+      :message="confirmState.message"
+      :confirm-text="confirmState.confirmText"
+      :variant="confirmState.variant"
+      :loading="confirmState.loading"
+      @confirm="executeConfirm"
+      @cancel="closeConfirm"
+    ></confirm-modal>
+  </div>
+
+  <!-- Vue 3 CDN -->
+  <script src="https://unpkg.com/vue@3.5.13/dist/vue.global.prod.js"></script>
+
+  <!-- Firebase Compat v10 CDN -->
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+
+  <!-- Config & Services -->
+  <script src="./js/firebase-config.js"></script>
+  <script src="./js/services/activityLogService.js"></script>
+  <script src="./js/services/userService.js"></script>
+  <script src="./js/services/settingsService.js"></script>
+  <script src="./js/services/masterService.js"></script>
+  <script src="./js/services/driveService.js"></script>
+  <script src="./js/services/pesananService.js"></script>
+  <script src="./js/services/sablonService.js"></script>
+
+  <!-- Vue Components -->
+  <script src="./js/components/ToastContainer.js"></script>
+  <script src="./js/components/ConfirmModal.js"></script>
+  <script src="./js/components/TablePagination.js"></script>
+  <script src="./js/components/FilePreviewModal.js"></script>
+  <script src="./js/components/LoginView.js"></script>
+  <script src="./js/components/AppSidebar.js"></script>
+  <script src="./js/components/AppNavbar.js"></script>
+  <script src="./js/components/DashboardView.js"></script>
+  <script src="./js/components/PesananView.js"></script>
+  <script src="./js/components/OperasionalView.js"></script>
+  <script src="./js/components/SablonView.js"></script>
+  <script src="./js/components/MasterProdukPanel.js"></script>
+  <script src="./js/components/MasterExpedisiPanel.js"></script>
+  <script src="./js/components/MasterDataView.js"></script>
+  <script src="./js/components/AkunKaryawanView.js"></script>
+  <script src="./js/components/ActivityLogView.js"></script>
+  <script src="./js/components/PengaturanView.js"></script>
+  <script src="./js/components/ComingSoonView.js"></script>
+
+  <!-- App Bootstrap -->
+  <script src="./js/app.js"></script>
+</body>
+</html>
