@@ -46,6 +46,7 @@
       AkunKaryawanView: global.ZcpComponents.AkunKaryawanView,
       ActivityLogView: global.ZcpComponents.ActivityLogView,
       PengaturanView: global.ZcpComponents.PengaturanView,
+      AiChatbot: global.ZcpComponents.AiChatbot,
       ComingSoonView: global.ZcpComponents.ComingSoonView
     },
     data: function () {
@@ -56,6 +57,12 @@
         user: null,
         currentPage: 'dashboard',
         defaultPageSize: 10,
+        aiConfig: {
+          geminiApiUrl:
+            (global.ZcpSettingsService && global.ZcpSettingsService.DEFAULT_GEMINI_URL) ||
+            'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
+          geminiApiKey: ''
+        },
         theme: detectInitialTheme(),
         sidebarOpen: false,
         toasts: [],
@@ -225,6 +232,21 @@
       onSettingsUpdated: function (newPageSize) {
         this.defaultPageSize = newPageSize;
       },
+      onAiConfigUpdated: function (cfg) {
+        var defaultUrl =
+          (global.ZcpSettingsService && global.ZcpSettingsService.DEFAULT_GEMINI_URL) ||
+          'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+        this.aiConfig = {
+          geminiApiUrl: (cfg && cfg.geminiApiUrl) || defaultUrl,
+          geminiApiKey: (cfg && cfg.geminiApiKey) || ''
+        };
+      },
+      onAiDataMutated: function (info) {
+        if (info && info.touchedMaster) {
+          this.loadMasterProduk();
+          this.loadMasterExpedisi();
+        }
+      },
       initAuthListener: function () {
         if (!this.firebaseReady) {
           this.authLoading = false;
@@ -289,7 +311,7 @@
           }
         );
       },
-      startMasterSubscriptions: async function () {
+      startMasterSubscriptions: async function (role) {
         this.cleanupMasterSubscriptions();
         var self = this;
 
@@ -303,6 +325,16 @@
           .catch(function () {
             // Gunakan default 10 jika gagal membaca pengaturan
           });
+
+        if (role === 'superadmin' || role === 'admin') {
+          global.ZcpSettingsService.fetchAiConfig()
+            .then(function (aiCfg) {
+              self.aiConfig = aiCfg;
+            })
+            .catch(function () {
+              // Abaikan jika aturan AI config belum terbit atau belum diisi
+            });
+        }
 
         this.subscribePesananList();
         this.subscribeSablonList();
@@ -467,6 +499,12 @@
         this.loadingUsers = false;
         this.loadingLogs = false;
         this.loadingMoreLogs = false;
+        this.aiConfig = {
+          geminiApiUrl:
+            (global.ZcpSettingsService && global.ZcpSettingsService.DEFAULT_GEMINI_URL) ||
+            'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
+          geminiApiKey: ''
+        };
       },
       requestLogout: function () {
         var self = this;

@@ -79,9 +79,15 @@ service cloud.firestore {
       allow create, update, delete: if isSuperAdmin();
     }
 
-    // Koleksi Pengaturan Aplikasi (hanya Superadmin yang boleh mengubah)
+    // Konfigurasi AI Gemini (berisi API Key: hanya Superadmin & Admin dapat membaca, hanya Superadmin dapat mengubah)
+    match /app_settings/ai_config {
+      allow read: if isAdminOrSuper();
+      allow create, update, delete: if isSuperAdmin();
+    }
+
+    // Koleksi Pengaturan Aplikasi umum (hanya Superadmin yang boleh mengubah)
     match /app_settings/{settingId} {
-      allow read: if isActiveUser();
+      allow read: if settingId != 'ai_config' && isActiveUser();
       allow create, update, delete: if isSuperAdmin();
     }
 
@@ -122,6 +128,11 @@ service cloud.firestore {
       allow read: if isActiveUser();
       allow create, delete: if isAdminOrSuper();
       allow update: if isAdminOrSuper() || (isKaryawan() && karyawanSablonUpdateAllowed());
+    }
+
+    // Log Perubahan AI Chatbot (maks 20 terakhir untuk audit & fitur Rollback AI)
+    match /ai_change_logs/{logId} {
+      allow read, create, update, delete: if isAdminOrSuper();
     }
 
     // Blokir seluruh akses ke koleksi lain secara default

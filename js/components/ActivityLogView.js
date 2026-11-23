@@ -11,7 +11,8 @@
     COMPLETE: { label: 'Selesai', cls: 'done' },
     UNDO_COMPLETE: { label: 'Batal Selesai', cls: 'warn' },
     CHECK_PRINT: { label: 'Print ✓', cls: 'done' },
-    UNCHECK_PRINT: { label: 'Batal Print', cls: 'warn' }
+    UNCHECK_PRINT: { label: 'Batal Print', cls: 'warn' },
+    ROLLBACK: { label: 'Rollback AI', cls: 'warn' }
   };
 
   global.ZcpComponents.ActivityLogView = {
@@ -255,6 +256,7 @@
                 <option value="UNCHECK_PRINT">Batal Print</option>
                 <option value="COMPLETE">Selesai</option>
                 <option value="UNDO_COMPLETE">Batal Selesai</option>
+                <option value="ROLLBACK">Rollback AI</option>
               </select>
 
               <button

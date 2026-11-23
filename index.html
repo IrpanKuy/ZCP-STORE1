@@ -183,11 +183,13 @@
             v-else-if="currentPage === 'pengaturan' && user.role === 'superadmin'"
             :default-page-size="defaultPageSize"
             :user-profile="user"
+            :ai-config="aiConfig"
             :theme="theme"
             @notify="addToast"
             @toggle-theme="toggleTheme"
             @profile-updated="onProfileUpdated"
             @settings-updated="onSettingsUpdated"
+            @ai-config-updated="onAiConfigUpdated"
           ></pengaturan-view>
 
           <coming-soon-view
@@ -215,6 +217,20 @@
       @confirm="executeConfirm"
       @cancel="closeConfirm"
     ></confirm-modal>
+
+    <ai-chatbot
+      v-if="user && (user.role === 'superadmin' || user.role === 'admin')"
+      :user="user"
+      :ai-config="aiConfig"
+      :drive-ready="driveReady"
+      :produk-list="produkList"
+      :expedisi-list="expedisiList"
+      :pesanan-list="pesananList"
+      :sablon-list="sablonList"
+      @notify="addToast"
+      @data-mutated="onAiDataMutated"
+      @open-settings="navigatePage('pengaturan')"
+    ></ai-chatbot>
   </div>
 
   <!-- Vue 3 CDN -->
@@ -234,6 +250,7 @@
   <script src="./js/services/driveService.js"></script>
   <script src="./js/services/pesananService.js"></script>
   <script src="./js/services/sablonService.js"></script>
+  <script src="./js/services/aiService.js"></script>
 
   <!-- Vue Components -->
   <script src="./js/components/ToastContainer.js"></script>
@@ -253,6 +270,7 @@
   <script src="./js/components/AkunKaryawanView.js"></script>
   <script src="./js/components/ActivityLogView.js"></script>
   <script src="./js/components/PengaturanView.js"></script>
+  <script src="./js/components/AiChatbot.js"></script>
   <script src="./js/components/ComingSoonView.js"></script>
 
   <!-- App Bootstrap -->
