@@ -82,7 +82,9 @@
         namaProduk: '',
         templateRows: [makeTemplateRow('')],
         formError: '',
-        saving: false
+        saving: false,
+        detailModalOpen: false,
+        detailProduk: null
       };
     },
     watch: {
@@ -165,6 +167,21 @@
       closeModal: function () {
         if (this.saving) return;
         this.modalOpen = false;
+      },
+      openDetailModal: function (item) {
+        this.detailProduk = item;
+        this.detailModalOpen = true;
+      },
+      closeDetailModal: function () {
+        this.detailModalOpen = false;
+        this.detailProduk = null;
+      },
+      editFromDetailModal: function () {
+        var target = this.detailProduk;
+        this.closeDetailModal();
+        if (target) {
+          this.openEditModal(target);
+        }
       },
       addTemplateRow: function () {
         this.templateRows.push(makeTemplateRow('', ['Depan', 'Belakang'], []));
@@ -481,34 +498,15 @@
                     <span>{{ item.namaProduk }}</span>
                   </div>
                 </td>
-                <td class="sisi-cell" data-label="Template Sisi">
-                  <div class="template-summary-stack">
-                    <div
-                      v-for="tpl in getNormalizedTemplates(item)"
-                      :key="tpl.id"
-                      class="template-summary-item"
-                    >
-                      <div class="template-summary-title">
-                        <strong>{{ tpl.namaTemplate }}</strong>
-                        <span class="form-hint">({{ tpl.sisiList.length }} sisi)</span>
-                      </div>
-                      <div class="chips-wrap" style="margin-top: 4px;">
-                        <span v-for="(sisi, sIdx) in tpl.sisiList" :key="sIdx" class="chip">
-                          {{ sisi }}
-                        </span>
-                      </div>
-                      <div v-if="tpl.groupings && tpl.groupings.length" class="chips-wrap" style="margin-top: 5px;">
-                        <span
-                          v-for="grp in tpl.groupings"
-                          :key="grp.id"
-                          class="grouping-chip"
-                        >
-                          <span class="material-symbols-rounded" style="font-size: 13px;">workspaces</span>
-                          <span>{{ grp.namaGrouping }}: {{ grp.sisi.join(' + ') }}</span>
-                        </span>
-                      </div>
-                    </div>
-                  </div>
+                <td data-label="Template Sisi">
+                  <button
+                    type="button"
+                    class="btn btn-secondary btn-sm"
+                    @click="openDetailModal(item)"
+                  >
+                    <span class="material-symbols-rounded" style="font-size: 16px;">layers</span>
+                    <span>Lihat Template ({{ getNormalizedTemplates(item).length }})</span>
+                  </button>
                 </td>
                 <td data-label="Jumlah Template">
                   <span class="badge-count">{{ getNormalizedTemplates(item).length }} template</span>
@@ -833,6 +831,94 @@
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+
+        <!-- Modal Detail Lengkap Template Sisi & Grouping -->
+        <div
+          v-if="detailModalOpen && detailProduk"
+          class="modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          @click.self="closeDetailModal"
+        >
+          <div class="modal-card modal-lg">
+            <div class="modal-header">
+              <div>
+                <h3 class="modal-title">Template Sisi — {{ detailProduk.namaProduk }}</h3>
+                <div class="form-hint">
+                  {{ getNormalizedTemplates(detailProduk).length }} template sisi terdaftar
+                </div>
+              </div>
+              <button
+                type="button"
+                class="btn btn-ghost btn-icon"
+                aria-label="Tutup detail template"
+                @click="closeDetailModal"
+              >
+                <span class="material-symbols-rounded">close</span>
+              </button>
+            </div>
+
+            <div class="modal-body">
+              <div class="template-builder-list">
+                <div
+                  v-for="(tpl, tIdx) in getNormalizedTemplates(detailProduk)"
+                  :key="tpl.id || tIdx"
+                  class="template-card"
+                >
+                  <div class="template-card-head">
+                    <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                      <span class="badge-count">#{{ tIdx + 1 }}</span>
+                      <strong style="font-size: 14.5px;">{{ tpl.namaTemplate }}</strong>
+                    </div>
+                    <span class="chip">{{ tpl.sisiList.length }} sisi</span>
+                  </div>
+
+                  <div style="margin-bottom: 8px;">
+                    <div class="form-hint" style="margin-bottom: 5px; font-weight: 600;">Daftar Sisi:</div>
+                    <div class="chips-wrap">
+                      <span v-for="(sisi, sIdx) in tpl.sisiList" :key="sIdx" class="chip">
+                        {{ sisi }}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div v-if="tpl.groupings && tpl.groupings.length">
+                    <div class="form-hint" style="margin-bottom: 5px; font-weight: 600;">
+                      Grouping Design Sama (otomatis digabung di Manajemen Sablon):
+                    </div>
+                    <div class="chips-wrap">
+                      <span
+                        v-for="grp in tpl.groupings"
+                        :key="grp.id"
+                        class="grouping-chip"
+                      >
+                        <span class="material-symbols-rounded" style="font-size: 14px;">workspaces</span>
+                        <span>{{ grp.namaGrouping }}: {{ grp.sisi.join(' + ') }}</span>
+                      </span>
+                    </div>
+                  </div>
+                  <div v-else class="form-hint">
+                    Tidak ada grouping (tiap sisi diinput terpisah di Manajemen Sablon).
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="modal-footer">
+              <button
+                type="button"
+                class="btn btn-secondary"
+                @click="editFromDetailModal"
+              >
+                <span class="material-symbols-rounded" style="font-size: 16px;">edit</span>
+                <span>Edit Produk Ini</span>
+              </button>
+              <button type="button" class="btn btn-primary" @click="closeDetailModal">
+                Tutup
+              </button>
+            </div>
           </div>
         </div>
       </div>

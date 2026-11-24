@@ -3711,24 +3711,51 @@ textarea {
   background: rgba(14, 165, 233, 0.18);
 }
 
+.template-sisi-col {
+  min-width: 300px;
+  white-space: normal;
+}
+
 .template-summary-stack {
   display: flex;
-  flex-direction: column;
-  gap: 8px;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 6px;
 }
 
 .template-summary-item {
-  padding: 6px 8px;
+  display: inline-flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 9px;
   border-radius: var(--radius-xs);
   background: var(--bg-surface-2);
   border: 1px solid var(--border-color);
+  max-width: 100%;
+}
+
+.template-summary-item .chips-wrap {
+  gap: 4px;
+}
+
+.template-summary-item .chip {
+  padding: 2px 8px;
+  font-size: 11.5px;
 }
 
 .template-summary-title {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 12.5px;
+  gap: 5px;
+  font-size: 12px;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+.template-card .dynamic-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 8px;
 }
 
 .template-builder-list {
