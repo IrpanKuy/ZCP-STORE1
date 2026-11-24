@@ -18,6 +18,12 @@
           return [];
         }
       },
+      staffList: {
+        type: Array,
+        default: function () {
+          return [];
+        }
+      },
       loading: { type: Boolean, default: false },
       userRole: { type: String, default: 'superadmin' },
       currentUserUid: { type: String, default: '' },
@@ -41,7 +47,14 @@
         draftDates: {},
         dirtyMap: {},
         savingIdMap: {},
-        filePreviewOrder: null
+        filePreviewOrder: null,
+        kontribusiModal: {
+          visible: false,
+          order: null,
+          rows: [],
+          saving: false,
+          error: ''
+        }
       };
     },
     watch: {
@@ -79,8 +92,8 @@
     },
     computed: {
       /**
-       * Agregasi cadangan langsung dari daftar sablon yang sudah selesai
-       * agar progres tetap akurat seketika.
+       * Agregasi cadangan langsung dari daftar sablon yang sudah di-print
+       * (memperhitungkan pembagian rata otomatis pada sisi ter-grouping).
        */
       completedSablonTotals: function () {
         var totals = {};
@@ -88,7 +101,9 @@
           var s = this.sablonList[i];
           var checkedCount = Array.isArray(s.perulanganChecks)
             ? s.perulanganChecks.filter(Boolean).length
-            : (s.statusSelesai ? Math.max(1, parseInt(s.jumlahPerulangan, 10) || 1) : 0);
+            : s.statusSelesai
+            ? Math.max(1, parseInt(s.jumlahPerulangan, 10) || 1)
+            : 0;
           if (checkedCount <= 0) continue;
           var items = Array.isArray(s.pesananItems) ? s.pesananItems : [];
           for (var j = 0; j < items.length; j++) {
@@ -96,9 +111,11 @@
             var pid = item && item.pesananId;
             if (!pid) continue;
             if (!totals[pid]) totals[pid] = {};
-            var sq = item.sisiQuantities || {};
-            Object.keys(sq).forEach(function (side) {
-              totals[pid][side] = (totals[pid][side] || 0) + ((Number(sq[side]) || 0) * checkedCount);
+            var expanded = global.ZcpSablonService.expandItemToSideTotals(item, checkedCount);
+            Object.keys(expanded).forEach(function (side) {
+              totals[pid][side] = global.ZcpSablonService.roundQty(
+                (totals[pid][side] || 0) + (Number(expanded[side]) || 0)
+              );
             });
           }
         }
@@ -143,6 +160,7 @@
           if (!q) return true;
           var matchPemesan = (order.namaPemesan || '').toLowerCase().indexOf(q) !== -1;
           var matchProduk = (order.namaProduk || '').toLowerCase().indexOf(q) !== -1;
+          var matchAsal = (order.namaAsalPesanan || '').toLowerCase().indexOf(q) !== -1;
           var matchExpedisi = (order.namaExpedisi || '').toLowerCase().indexOf(q) !== -1;
           var matchSisi =
             Array.isArray(order.namaSisi) &&
@@ -150,7 +168,7 @@
               return String(s).toLowerCase().indexOf(q) !== -1;
             });
 
-          return matchPemesan || matchProduk || matchExpedisi || matchSisi;
+          return matchPemesan || matchProduk || matchAsal || matchExpedisi || matchSisi;
         });
       },
       activeFilteredOrders: function () {
@@ -176,6 +194,9 @@
       },
       isKaryawan: function () {
         return this.userRole === 'karyawan';
+      },
+      isSuperadmin: function () {
+        return this.userRole === 'superadmin';
       },
       combinedOrderedList: function () {
         return this.activeFilteredOrders.concat(this.doneFilteredOrders);
@@ -210,6 +231,15 @@
         return this.filteredList.every(function (o) {
           return Boolean(selectedMap[o.id]);
         });
+      },
+      kontribusiDraftTotal: function () {
+        return (this.kontribusiModal.rows || []).reduce(function (sum, r) {
+          return sum + Math.max(0, parseInt(r.qty, 10) || 0);
+        }, 0);
+      },
+      kontribusiModalExceeds: function () {
+        var target = Number(this.kontribusiModal.order && this.kontribusiModal.order.jumlahProduk) || 0;
+        return this.kontribusiDraftTotal > target;
       }
     },
     methods: {
@@ -318,7 +348,6 @@
             tanggalDeadline: this.bulkDeadline
           });
 
-          // Reset dirty flags untuk pesanan yang ikut bulk update agar sinkron dengan Firestore
           var self = this;
           idsCopy.forEach(function (id) {
             self.dirtyMap[id] = false;
@@ -354,6 +383,12 @@
         if (!target || target <= 0) return 0;
         return Math.min(100, Math.round((done / target) * 100));
       },
+      getKontribusiTotal: function (order) {
+        return Number(order && order.kontribusiTotal) || 0;
+      },
+      isKontribusiComplete: function (order) {
+        return this.getKontribusiTotal(order) === (Number(order && order.jumlahProduk) || 0);
+      },
       deadlineBadgeMeta: function (order) {
         if (order.statusSelesai) {
           return { cls: 'done', icon: 'check_circle', text: 'Pesanan Selesai' };
@@ -383,9 +418,9 @@
         }
         return { cls: 'neutral', icon: 'event_busy', text: 'Belum Dijadwalkan' };
       },
-      canUndoSelesai: function (order) {
-        if (!this.isKaryawan) return true;
-        return Boolean(order.completedByUid && order.completedByUid === this.currentUserUid);
+      canUndoSelesai: function () {
+        // Setelah pesanan selesai, HANYA Superadmin yang dapat membatalkannya
+        return this.isSuperadmin;
       },
       formatDateString: function (ymd) {
         return global.ZcpPesananService.formatDateString(ymd);
@@ -396,39 +431,162 @@
       closeFilePreview: function () {
         this.filePreviewOrder = null;
       },
-      handleToggleSelesai: async function (order) {
-        var self = this;
+      openKontribusiModal: function (order) {
+        if (!order || order.statusSelesai) return;
+        var existingMap = {};
+        var existingByUid = {};
+        (Array.isArray(order.kontribusi) ? order.kontribusi : []).forEach(function (k) {
+          existingMap[k.uid] = Number(k.qty) || 0;
+          existingByUid[k.uid] = k;
+        });
 
-        if (order.statusSelesai) {
-          if (!this.canUndoSelesai(order)) {
-            this.$emit('notify', {
-              type: 'error',
-              message:
-                'Hanya ' +
-                (order.completedByName || 'akun yang menyelesaikan') +
-                ' atau Admin yang dapat membatalkan status selesai pesanan ini.'
+        var rows = [];
+        var seenUid = {};
+        (this.staffList || []).forEach(function (u) {
+          var uid = u.uid || u.id;
+          if (!uid || seenUid[uid]) return;
+          seenUid[uid] = true;
+          rows.push({
+            uid: uid,
+            nama: u.nama || u.email || 'Karyawan',
+            role: u.role || 'karyawan',
+            qty: existingMap[uid] || 0
+          });
+        });
+
+        // Sertakan juga akun historis di pesanan ini apabila akun tersebut sudah dinonaktifkan
+        Object.keys(existingByUid).forEach(function (uid) {
+          if (!seenUid[uid]) {
+            var item = existingByUid[uid];
+            rows.push({
+              uid: uid,
+              nama: item.nama || 'Karyawan',
+              role: item.role || 'karyawan',
+              qty: Number(item.qty) || 0
             });
-            return;
           }
-          this.savingIdMap[order.id] = true;
-          try {
-            await global.ZcpPesananService.toggleStatusSelesai(order.id, false, order);
-            this.$emit('notify', {
-              type: 'info',
-              message: 'Pesanan "' + order.namaPemesan + '" dikembalikan ke daftar aktif.'
-            });
-          } catch (err) {
-            this.$emit('notify', {
-              type: 'error',
-              message: (err && err.message) || 'Gagal mengubah status pesanan.'
-            });
-          } finally {
-            this.savingIdMap[order.id] = false;
+        });
+
+        this.kontribusiModal = {
+          visible: true,
+          order: order,
+          rows: rows,
+          saving: false,
+          error: ''
+        };
+      },
+      closeKontribusiModal: function () {
+        if (this.kontribusiModal.saving) return;
+        this.kontribusiModal.visible = false;
+        this.kontribusiModal.order = null;
+        this.kontribusiModal.rows = [];
+        this.kontribusiModal.error = '';
+      },
+      saveKontribusiModal: async function () {
+        var order = this.kontribusiModal.order;
+        if (!order || this.kontribusiModal.saving) return;
+
+        this.kontribusiModal.error = '';
+        var target = Number(order.jumlahProduk) || 0;
+        var total = this.kontribusiDraftTotal;
+
+        if (total > target) {
+          var errMsg =
+            'Total kontribusi karyawan (' +
+            total +
+            ' pcs) melebihi jumlah pesanan (' +
+            target +
+            ' pcs). Kurangi input terlebih dahulu.';
+          this.kontribusiModal.error = errMsg;
+          if (global.ZcpAlert) {
+            global.ZcpAlert.error(errMsg, 'Jumlah Kontribusi Melebihi Target');
           }
           return;
         }
 
-        // Cek apakah ada sisi yang progres sablonnya belum mencapai jumlahProduk
+        this.kontribusiModal.saving = true;
+        try {
+          var res = await global.ZcpPesananService.updateKontribusi(
+            order.id,
+            this.kontribusiModal.rows,
+            order
+          );
+          this.kontribusiModal.visible = false;
+          this.$emit('notify', {
+            type: 'success',
+            message:
+              'Kontribusi "' +
+              order.namaPemesan +
+              '" tersimpan (' +
+              res.kontribusiTotal +
+              '/' +
+              target +
+              ' pcs).'
+          });
+        } catch (err) {
+          var msg = (err && err.message) || 'Gagal menyimpan kontribusi.';
+          this.kontribusiModal.error = msg;
+          if (global.ZcpAlert) {
+            global.ZcpAlert.error(msg);
+          }
+        } finally {
+          this.kontribusiModal.saving = false;
+        }
+      },
+      handleToggleSelesai: async function (order) {
+        var self = this;
+
+        if (order.statusSelesai) {
+          if (!this.canUndoSelesai()) {
+            this.$emit('notify', {
+              type: 'error',
+              message: 'Hanya Superadmin yang dapat membatalkan pesanan yang sudah ditandai selesai.'
+            });
+            return;
+          }
+          this.$emit('request-confirm', {
+            title: 'Batalkan Status Selesai',
+            message:
+              'Kembalikan pesanan "' +
+              order.namaPemesan +
+              '" ke daftar aktif? Data kontribusi tetap tersimpan dan masih dapat diubah.',
+            confirmText: 'Ya, Kembalikan ke Aktif',
+            variant: 'danger',
+            onConfirm: async function () {
+              await global.ZcpPesananService.toggleStatusSelesai(order.id, false, order);
+              self.$emit('notify', {
+                type: 'info',
+                message: 'Pesanan "' + order.namaPemesan + '" dikembalikan ke daftar aktif.'
+              });
+            }
+          });
+          return;
+        }
+
+        if (!this.isKontribusiComplete(order)) {
+          var cur = this.getKontribusiTotal(order);
+          if (global.ZcpAlert) {
+            global.ZcpAlert.warning(
+              'Total kontribusi karyawan baru ' +
+                cur +
+                ' dari ' +
+                order.jumlahProduk +
+                ' pcs. Klik tombol "Atur Kontribusi" dan pastikan jumlahnya sama dengan qty pesanan sebelum menandai Selesai.',
+              'Kontribusi Belum Lengkap'
+            );
+          } else {
+            this.$emit('notify', {
+              type: 'error',
+              message:
+                'Atur kontribusi karyawan hingga total = ' +
+                order.jumlahProduk +
+                ' pcs terlebih dahulu.'
+            });
+          }
+          return;
+        }
+
+        // Bangun ringkasan kontribusi & cek sisi sablon belum 100%
         var incompleteSides = [];
         var sisiList = Array.isArray(order.namaSisi) ? order.namaSisi : [];
         for (var i = 0; i < sisiList.length; i++) {
@@ -439,43 +597,41 @@
           }
         }
 
-        if (incompleteSides.length > 0) {
-          this.$emit('request-confirm', {
-            title: 'Konfirmasi Pesanan Selesai',
-            message:
-              'Progres sablon untuk "' +
-              order.namaPemesan +
-              '" belum 100% pada sisi: ' +
-              incompleteSides.join(', ') +
-              '. Tetap tandai pesanan ini selesai?',
-            confirmText: 'Ya, Tandai Selesai',
-            variant: 'primary',
-            onConfirm: async function () {
-              await global.ZcpPesananService.toggleStatusSelesai(order.id, true, order);
-              self.$emit('notify', {
-                type: 'success',
-                message: 'Pesanan "' + order.namaPemesan + '" ditandai selesai.'
-              });
-            }
-          });
-          return;
-        }
+        var kontribText = (order.kontribusi || [])
+          .map(function (k) {
+            return k.nama + ': ' + k.qty + ' pcs';
+          })
+          .join(', ');
 
-        this.savingIdMap[order.id] = true;
-        try {
-          await global.ZcpPesananService.toggleStatusSelesai(order.id, true, order);
-          this.$emit('notify', {
-            type: 'success',
-            message: 'Pesanan "' + order.namaPemesan + '" ditandai selesai.'
-          });
-        } catch (err) {
-          this.$emit('notify', {
-            type: 'error',
-            message: (err && err.message) || 'Gagal menandai pesanan selesai.'
-          });
-        } finally {
-          this.savingIdMap[order.id] = false;
-        }
+        var confirmMsg =
+          'Tandai pesanan "' +
+          order.namaPemesan +
+          '" (' +
+          order.namaProduk +
+          ' - ' +
+          order.jumlahProduk +
+          ' pcs) sebagai Selesai?\n\nKontribusi tercatat: ' +
+          kontribText +
+          '.' +
+          (incompleteSides.length > 0
+            ? '\n\nCatatan: Progres sablon belum 100% pada sisi: ' + incompleteSides.join(', ') + '.'
+            : '') +
+          '\n\nPerhatian: Setelah ditandai Selesai, hanya Superadmin yang dapat membatalkannya.';
+
+        this.$emit('request-confirm', {
+          title: 'Konfirmasi Pesanan Selesai',
+          message: confirmMsg,
+          confirmText: 'Ya, Tandai Selesai',
+          variant: 'success',
+          icon: 'question',
+          onConfirm: async function () {
+            await global.ZcpPesananService.toggleStatusSelesai(order.id, true, order);
+            self.$emit('notify', {
+              type: 'success',
+              message: 'Pesanan "' + order.namaPemesan + '" ditandai selesai & masuk ke Borongan.'
+            });
+          }
+        });
       }
     },
     template: `
@@ -577,7 +733,7 @@
           <div class="panel-toolbar">
             <div class="panel-heading">
               <h2>Jadwal &amp; Progres Operasional</h2>
-              <p>Pantau deadline, lakukan bulk update tanggal, dan cek progres tiap sisi sablon.</p>
+              <p>Pantau deadline, progres sablon tiap sisi, serta atur kontribusi karyawan sebelum menyelesaikan pesanan.</p>
             </div>
 
             <div class="panel-actions">
@@ -587,7 +743,7 @@
                   v-model="searchQuery"
                   type="text"
                   class="form-control"
-                  placeholder="Cari pemesan, produk, sisi..."
+                  placeholder="Cari pemesan, produk, asal..."
                   aria-label="Cari operasional"
                 />
                 <button
@@ -646,7 +802,7 @@
               {{
                 pesananList.length
                   ? 'Coba ubah filter atau kata kunci pencarian di atas.'
-                  : 'Tambahkan pesanan terlebih dahulu di menu Manajemen Pesanan.'
+                  : 'Tambahkan pesanan terlebih dahulu di menu Pesanan.'
               }}
             </p>
             <button
@@ -655,7 +811,7 @@
               class="btn btn-primary"
               @click="$emit('go-pesanan')"
             >
-              Buka Manajemen Pesanan
+              Buka Menu Pesanan
             </button>
           </div>
 
@@ -685,6 +841,10 @@
                   <div class="op-order-title-row">
                     <span class="op-order-name">{{ order.namaPemesan }}</span>
                     <span class="badge-count">{{ order.jumlahProduk }} pcs</span>
+                    <span v-if="order.namaAsalPesanan" class="asal-badge">
+                      <span class="material-symbols-rounded" style="font-size: 13px;">storefront</span>
+                      <span>{{ order.namaAsalPesanan }}</span>
+                    </span>
                     <span class="status-badge" :class="deadlineBadgeMeta(order).cls">
                       <span class="material-symbols-rounded" style="font-size: 14px;">
                         {{ deadlineBadgeMeta(order).icon }}
@@ -702,8 +862,28 @@
                     </button>
                   </div>
                   <div class="op-order-sub">
-                    <strong>{{ order.namaProduk }}</strong> • Expedisi: {{ order.namaExpedisi }}
+                    <strong>{{ order.namaProduk }}</strong>
+                    <span v-if="order.namaTemplateSisi"> ({{ order.namaTemplateSisi }})</span>
+                    • Expedisi: {{ order.namaExpedisi }}
                     <span v-if="order.catatan"> • {{ order.catatan }}</span>
+                  </div>
+
+                  <!-- Ringkasan Kontribusi Sementara -->
+                  <div class="kontribusi-inline-row">
+                    <span
+                      class="status-badge"
+                      :class="isKontribusiComplete(order) ? 'done' : 'warn'"
+                    >
+                      <span class="material-symbols-rounded" style="font-size: 14px;">group</span>
+                      <span>Kontribusi: {{ getKontribusiTotal(order) }}/{{ order.jumlahProduk }} pcs</span>
+                    </span>
+                    <span
+                      v-for="k in order.kontribusi"
+                      :key="k.uid"
+                      class="chip"
+                    >
+                      {{ k.nama }}: <strong>{{ k.qty }} pcs</strong>
+                    </span>
                   </div>
                 </div>
 
@@ -748,20 +928,37 @@
                   </div>
                 </div>
 
-                <div class="op-action-col">
+                <div class="op-action-col op-action-stack">
+                  <button
+                    type="button"
+                    class="btn btn-secondary"
+                    :disabled="Boolean(savingIdMap[order.id])"
+                    @click="openKontribusiModal(order)"
+                  >
+                    <span class="material-symbols-rounded" style="font-size: 18px;">group</span>
+                    <span>Atur Kontribusi</span>
+                  </button>
                   <button
                     type="button"
                     class="btn btn-success"
-                    :disabled="Boolean(savingIdMap[order.id])"
+                    :disabled="Boolean(savingIdMap[order.id]) || !isKontribusiComplete(order)"
+                    :title="
+                      isKontribusiComplete(order)
+                        ? 'Tandai pesanan selesai'
+                        : 'Total kontribusi harus sama dengan qty pesanan (' + order.jumlahProduk + ' pcs)'
+                    "
                     @click="handleToggleSelesai(order)"
                   >
                     <span class="material-symbols-rounded" style="font-size: 18px;">check_circle</span>
                     <span>Pesanan Selesai</span>
                   </button>
+                  <span v-if="!isKontribusiComplete(order)" class="form-hint" style="text-align: right;">
+                    Kontribusi {{ getKontribusiTotal(order) }}/{{ order.jumlahProduk }} pcs
+                  </span>
                 </div>
               </div>
 
-              <!-- Indikator Progres Per Sisi (Looping sisi yang dipilih pada pesanan) -->
+              <!-- Indikator Progres Per Sisi -->
               <div class="op-sisi-section">
                 <div
                   v-for="sisi in order.namaSisi"
@@ -814,6 +1011,10 @@
                   <div class="op-order-title-row">
                     <span class="op-order-name">{{ order.namaPemesan }}</span>
                     <span class="badge-count">{{ order.jumlahProduk }} pcs</span>
+                    <span v-if="order.namaAsalPesanan" class="asal-badge">
+                      <span class="material-symbols-rounded" style="font-size: 13px;">storefront</span>
+                      <span>{{ order.namaAsalPesanan }}</span>
+                    </span>
                     <span class="status-badge done">
                       <span class="material-symbols-rounded" style="font-size: 14px;">check_circle</span>
                       <span>Selesai</span>
@@ -833,8 +1034,21 @@
                     </button>
                   </div>
                   <div class="op-order-sub">
-                    <strong>{{ order.namaProduk }}</strong> • Expedisi: {{ order.namaExpedisi }}
+                    <strong>{{ order.namaProduk }}</strong>
+                    <span v-if="order.namaTemplateSisi"> ({{ order.namaTemplateSisi }})</span>
+                    • Expedisi: {{ order.namaExpedisi }}
                     <span v-if="order.catatan"> • {{ order.catatan }}</span>
+                  </div>
+
+                  <div v-if="order.kontribusi && order.kontribusi.length" class="kontribusi-inline-row">
+                    <span class="form-hint" style="font-weight: 600;">Kontribusi:</span>
+                    <span
+                      v-for="k in order.kontribusi"
+                      :key="k.uid"
+                      class="chip"
+                    >
+                      {{ k.nama }}: <strong>{{ k.qty }} pcs</strong>
+                    </span>
                   </div>
                 </div>
 
@@ -878,7 +1092,7 @@
                   </div>
                 </div>
 
-                <div class="op-action-col">
+                <div class="op-action-col op-action-stack">
                   <button
                     v-if="canUndoSelesai(order)"
                     type="button"
@@ -889,8 +1103,8 @@
                     <span class="material-symbols-rounded" style="font-size: 18px;">undo</span>
                     <span>Batal Selesai</span>
                   </button>
-                  <span v-else class="form-hint">
-                    Diselesaikan oleh {{ order.completedByName || 'Admin' }}
+                  <span v-else class="form-hint" style="text-align: right;">
+                    Selesai oleh {{ order.completedByName || 'Admin' }}. Hanya Superadmin yang dapat membatalkan.
                   </span>
                 </div>
               </div>
@@ -936,6 +1150,122 @@
             <button type="button" class="btn btn-secondary btn-sm" @click="$emit('load-more')">
               <span>Muat Pesanan Lebih Lama (+150)</span>
             </button>
+          </div>
+        </div>
+
+        <!-- Modal Atur Kontribusi Karyawan -->
+        <div
+          v-if="kontribusiModal.visible && kontribusiModal.order"
+          class="modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          @click.self="closeKontribusiModal"
+        >
+          <div class="modal-card">
+            <div class="modal-header">
+              <div>
+                <h3 class="modal-title">Atur Kontribusi Produksi</h3>
+                <div class="form-hint">
+                  {{ kontribusiModal.order.namaPemesan }} — {{ kontribusiModal.order.namaProduk }} (Target: {{ kontribusiModal.order.jumlahProduk }} pcs)
+                </div>
+              </div>
+              <button
+                type="button"
+                class="btn btn-ghost btn-icon"
+                :disabled="kontribusiModal.saving"
+                aria-label="Tutup modal"
+                @click="closeKontribusiModal"
+              >
+                <span class="material-symbols-rounded">close</span>
+              </button>
+            </div>
+
+            <form @submit.prevent="saveKontribusiModal">
+              <div class="modal-body">
+                <div v-if="kontribusiModal.error" class="alert alert-danger" role="alert">
+                  <span class="material-symbols-rounded">error</span>
+                  <div>{{ kontribusiModal.error }}</div>
+                </div>
+
+                <div
+                  class="kontribusi-summary-bar"
+                  :class="{
+                    over: kontribusiModalExceeds,
+                    complete: !kontribusiModalExceeds && kontribusiDraftTotal === kontribusiModal.order.jumlahProduk
+                  }"
+                >
+                  <div>
+                    <div style="font-size: 12px; opacity: 0.85;">Total Qty Kontribusi Terinput</div>
+                    <div style="font-size: 18px; font-weight: 700;">
+                      {{ kontribusiDraftTotal }} / {{ kontribusiModal.order.jumlahProduk }} pcs
+                    </div>
+                  </div>
+                  <div style="text-align: right; font-size: 12.5px; font-weight: 600;">
+                    <span v-if="kontribusiModalExceeds">
+                      Melebihi +{{ kontribusiDraftTotal - kontribusiModal.order.jumlahProduk }} pcs!
+                    </span>
+                    <span v-else-if="kontribusiDraftTotal === kontribusiModal.order.jumlahProduk">
+                      Lengkap! Pesanan siap ditandai Selesai
+                    </span>
+                    <span v-else>
+                      Sisa belum terinput: {{ kontribusiModal.order.jumlahProduk - kontribusiDraftTotal }} pcs
+                    </span>
+                  </div>
+                </div>
+
+                <div class="form-hint" style="margin-bottom: 10px;">
+                  Anda dapat menyimpan kontribusi bertahap di tengah proses pengerjaan. Tombol "Pesanan Selesai" aktif jika total qty sama dengan jumlah pesanan.
+                </div>
+
+                <div v-if="!kontribusiModal.rows.length" class="empty-state" style="padding: 24px 12px;">
+                  <p style="margin: 0;">Belum ada akun Admin atau Karyawan aktif. Superadmin dapat menambahkannya di menu Akun Karyawan.</p>
+                </div>
+
+                <div v-else class="kontribusi-list">
+                  <div
+                    v-for="row in kontribusiModal.rows"
+                    :key="row.uid"
+                    class="kontribusi-row"
+                  >
+                    <div class="kontribusi-staff-info">
+                      <strong>{{ row.nama }}</strong>
+                      <span class="role-badge" :class="row.role">{{ row.role }}</span>
+                    </div>
+                    <div class="kontribusi-qty-wrap">
+                      <input
+                        v-model.number="row.qty"
+                        type="number"
+                        min="0"
+                        :max="kontribusiModal.order.jumlahProduk"
+                        step="1"
+                        class="form-control kontribusi-qty-input"
+                        :disabled="kontribusiModal.saving"
+                      />
+                      <span class="form-hint">pcs</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="modal-footer">
+                <button
+                  type="button"
+                  class="btn btn-secondary"
+                  :disabled="kontribusiModal.saving"
+                  @click="closeKontribusiModal"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  class="btn btn-primary"
+                  :disabled="kontribusiModal.saving || kontribusiModalExceeds || !kontribusiModal.rows.length"
+                >
+                  <span v-if="kontribusiModal.saving" class="spinner spinner-sm"></span>
+                  <span>{{ kontribusiModal.saving ? 'Menyimpan...' : 'Simpan Kontribusi' }}</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
 

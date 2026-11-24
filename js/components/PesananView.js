@@ -26,6 +26,12 @@
           return [];
         }
       },
+      asalPesananList: {
+        type: Array,
+        default: function () {
+          return [];
+        }
+      },
       loading: { type: Boolean, default: false },
       driveReady: { type: Boolean, default: false },
       userRole: { type: String, default: 'superadmin' },
@@ -41,6 +47,7 @@
         searchQuery: '',
         statusFilter: 'all',
         produkFilter: '',
+        asalFilter: '',
         currentPage: 1,
         localPageSize: this.defaultPageSize,
         modalOpen: false,
@@ -51,11 +58,14 @@
         isDragging: false,
         form: {
           namaPemesan: '',
+          selectedAsalKey: '',
+          snapshotAsalId: '',
+          snapshotAsalName: '',
           selectedProdukKey: '',
           snapshotProdukId: '',
           snapshotProdukName: '',
-          snapshotProdukSisi: [],
-          selectedSisi: [],
+          selectedTemplateKey: '',
+          snapshotTemplate: null,
           jumlahProduk: 1,
           selectedExpedisiKey: '',
           snapshotExpedisiId: '',
@@ -83,6 +93,9 @@
       },
       produkFilter: function () {
         this.currentPage = 1;
+      },
+      asalFilter: function () {
+        this.currentPage = 1;
       }
     },
     computed: {
@@ -106,19 +119,40 @@
         });
         return names.sort();
       },
+      asalFilterOptions: function () {
+        var map = {};
+        var names = [];
+        this.asalPesananList.forEach(function (a) {
+          if (a.namaAsal && !map[a.namaAsal]) {
+            map[a.namaAsal] = true;
+            names.push(a.namaAsal);
+          }
+        });
+        this.pesananList.forEach(function (o) {
+          if (o.namaAsalPesanan && !map[o.namaAsalPesanan]) {
+            map[o.namaAsalPesanan] = true;
+            names.push(o.namaAsalPesanan);
+          }
+        });
+        return names.sort();
+      },
       filteredList: function () {
         var q = this.searchQuery.trim().toLowerCase();
         var status = this.statusFilter;
         var produk = this.produkFilter;
+        var asal = this.asalFilter;
 
         return this.pesananList.filter(function (order) {
           if (status === 'active' && order.statusSelesai) return false;
           if (status === 'done' && !order.statusSelesai) return false;
           if (produk && order.namaProduk !== produk) return false;
+          if (asal && order.namaAsalPesanan !== asal) return false;
           if (!q) return true;
 
           var matchPemesan = (order.namaPemesan || '').toLowerCase().indexOf(q) !== -1;
           var matchProduk = (order.namaProduk || '').toLowerCase().indexOf(q) !== -1;
+          var matchTemplate = (order.namaTemplateSisi || '').toLowerCase().indexOf(q) !== -1;
+          var matchAsal = (order.namaAsalPesanan || '').toLowerCase().indexOf(q) !== -1;
           var matchExpedisi = (order.namaExpedisi || '').toLowerCase().indexOf(q) !== -1;
           var matchCatatan = (order.catatan || '').toLowerCase().indexOf(q) !== -1;
           var matchSisi =
@@ -127,7 +161,15 @@
               return String(s).toLowerCase().indexOf(q) !== -1;
             });
 
-          return matchPemesan || matchProduk || matchExpedisi || matchCatatan || matchSisi;
+          return (
+            matchPemesan ||
+            matchProduk ||
+            matchTemplate ||
+            matchAsal ||
+            matchExpedisi ||
+            matchCatatan ||
+            matchSisi
+          );
         });
       },
       paginatedList: function () {
@@ -156,40 +198,43 @@
         }
         return null;
       },
-      availableSisi: function () {
-        var list = [];
-        var seen = {};
-        function pushUnique(name) {
-          var clean = String(name || '').trim();
-          if (!clean) return;
-          var lower = clean.toLowerCase();
-          if (!seen[lower]) {
-            seen[lower] = true;
-            list.push(clean);
+      selectedAsalObj: function () {
+        var key = this.form.selectedAsalKey;
+        if (!key || key === '__snapshot__') return null;
+        for (var i = 0; i < this.asalPesananList.length; i++) {
+          if (this.asalPesananList[i].id === key) {
+            return this.asalPesananList[i];
           }
         }
-
-        if (this.selectedProdukObj && Array.isArray(this.selectedProdukObj.namaSisi)) {
-          this.selectedProdukObj.namaSisi.forEach(pushUnique);
-        } else if (this.form.selectedProdukKey === '__snapshot__') {
-          this.form.snapshotProdukSisi.forEach(pushUnique);
+        return null;
+      },
+      availableTemplates: function () {
+        if (!this.selectedProdukObj) return [];
+        if (global.ZcpMasterService && global.ZcpMasterService.normalizeTemplateSisiList) {
+          return global.ZcpMasterService.normalizeTemplateSisiList(
+            this.selectedProdukObj.templateSisi,
+            this.selectedProdukObj.namaSisi
+          );
         }
-
-        // Saat mengedit, pertahankan sisi historis pesanan jika ada sisi master yang sudah dihapus
-        if (this.editingOrder && Array.isArray(this.editingOrder.namaSisi)) {
-          var isOriginalProduk =
-            (this.form.selectedProdukKey === '__snapshot__' &&
-              this.form.snapshotProdukName === this.editingOrder.namaProduk) ||
-            (this.selectedProdukObj && this.selectedProdukObj.id === this.editingOrder.produkId);
-          if (isOriginalProduk) {
-            this.editingOrder.namaSisi.forEach(pushUnique);
+        return Array.isArray(this.selectedProdukObj.templateSisi)
+          ? this.selectedProdukObj.templateSisi
+          : [];
+      },
+      selectedTemplateObj: function () {
+        var key = this.form.selectedTemplateKey;
+        if (!key) return null;
+        if (key === '__snapshot_tpl__') {
+          return this.form.snapshotTemplate || null;
+        }
+        for (var i = 0; i < this.availableTemplates.length; i++) {
+          if (this.availableTemplates[i].id === key) {
+            return this.availableTemplates[i];
           }
         }
-
-        return list;
+        return null;
       },
       masterMissingWarning: function () {
-        return !this.produkList.length || !this.expedisiList.length;
+        return !this.produkList.length || !this.expedisiList.length || !this.asalPesananList.length;
       },
       totalPcsCount: function () {
         return this.pesananList.reduce(function (sum, item) {
@@ -221,6 +266,15 @@
       formatFileSize: function (bytes) {
         return global.ZcpPesananService.formatFileSize(bytes);
       },
+      getProductTemplateCount: function (produk) {
+        if (global.ZcpMasterService && global.ZcpMasterService.normalizeTemplateSisiList) {
+          return global.ZcpMasterService.normalizeTemplateSisiList(
+            produk.templateSisi,
+            produk.namaSisi
+          ).length;
+        }
+        return Array.isArray(produk.templateSisi) ? produk.templateSisi.length : 0;
+      },
       revokeAllStagedPreviews: function () {
         var staged = this.form.stagedFiles || [];
         for (var i = 0; i < staged.length; i++) {
@@ -237,11 +291,14 @@
         this.isDragging = false;
         this.form = {
           namaPemesan: '',
+          selectedAsalKey: '',
+          snapshotAsalId: '',
+          snapshotAsalName: '',
           selectedProdukKey: '',
           snapshotProdukId: '',
           snapshotProdukName: '',
-          snapshotProdukSisi: [],
-          selectedSisi: [],
+          selectedTemplateKey: '',
+          snapshotTemplate: null,
           jumlahProduk: 1,
           selectedExpedisiKey: '',
           snapshotExpedisiId: '',
@@ -273,14 +330,51 @@
         var matchedExpedisi = this.expedisiList.find(function (e) {
           return e.id === order.expedisiId || e.namaExpedisi === order.namaExpedisi;
         });
+        var matchedAsal = this.asalPesananList.find(function (a) {
+          return a.id === order.asalPesananId || a.namaAsal === order.namaAsalPesanan;
+        });
+
+        var tplKey = '';
+        var snapshotTpl = {
+          id: order.templateSisiId || '__snapshot_tpl__',
+          namaTemplate: order.namaTemplateSisi || 'Template Tersimpan',
+          sisiList: Array.isArray(order.namaSisi) ? order.namaSisi.slice() : [],
+          groupings: Array.isArray(order.sisiGroupings) ? order.sisiGroupings.slice() : []
+        };
+
+        if (matchedProduk) {
+          var tpls =
+            global.ZcpMasterService && global.ZcpMasterService.normalizeTemplateSisiList
+              ? global.ZcpMasterService.normalizeTemplateSisiList(
+                  matchedProduk.templateSisi,
+                  matchedProduk.namaSisi
+                )
+              : [];
+          var matchedTpl = tpls.find(function (t) {
+            return (
+              (order.templateSisiId && t.id === order.templateSisiId) ||
+              (order.namaTemplateSisi && t.namaTemplate === order.namaTemplateSisi)
+            );
+          });
+          tplKey = matchedTpl ? matchedTpl.id : '__snapshot_tpl__';
+        } else {
+          tplKey = '__snapshot_tpl__';
+        }
 
         this.form = {
           namaPemesan: order.namaPemesan || '',
+          selectedAsalKey: matchedAsal
+            ? matchedAsal.id
+            : order.namaAsalPesanan
+            ? '__snapshot__'
+            : '',
+          snapshotAsalId: order.asalPesananId || '',
+          snapshotAsalName: order.namaAsalPesanan || '',
           selectedProdukKey: matchedProduk ? matchedProduk.id : '__snapshot__',
           snapshotProdukId: order.produkId || '',
           snapshotProdukName: order.namaProduk || '',
-          snapshotProdukSisi: Array.isArray(order.namaSisi) ? order.namaSisi.slice() : [],
-          selectedSisi: Array.isArray(order.namaSisi) ? order.namaSisi.slice() : [],
+          selectedTemplateKey: tplKey,
+          snapshotTemplate: snapshotTpl,
           jumlahProduk: Number(order.jumlahProduk) || 1,
           selectedExpedisiKey: matchedExpedisi ? matchedExpedisi.id : '__snapshot__',
           snapshotExpedisiId: order.expedisiId || '',
@@ -308,24 +402,8 @@
         this.modalOpen = false;
       },
       onProdukChange: function () {
-        this.form.selectedSisi = [];
-      },
-      isSisiSelected: function (sisi) {
-        return this.form.selectedSisi.indexOf(sisi) !== -1;
-      },
-      toggleSisi: function (sisi) {
-        var idx = this.form.selectedSisi.indexOf(sisi);
-        if (idx === -1) {
-          this.form.selectedSisi.push(sisi);
-        } else {
-          this.form.selectedSisi.splice(idx, 1);
-        }
-      },
-      selectAllSisi: function () {
-        this.form.selectedSisi = this.availableSisi.slice();
-      },
-      clearSisi: function () {
-        this.form.selectedSisi = [];
+        var tpls = this.availableTemplates;
+        this.form.selectedTemplateKey = tpls.length === 1 ? tpls[0].id : '';
       },
       triggerFilePicker: function () {
         if (this.saving) return;
@@ -423,6 +501,20 @@
           return;
         }
 
+        var asalPesananId = '';
+        var namaAsalPesanan = '';
+        if (this.selectedAsalObj) {
+          asalPesananId = this.selectedAsalObj.id;
+          namaAsalPesanan = this.selectedAsalObj.namaAsal;
+        } else if (this.form.selectedAsalKey === '__snapshot__') {
+          asalPesananId = this.form.snapshotAsalId;
+          namaAsalPesanan = this.form.snapshotAsalName;
+        }
+        if (!namaAsalPesanan && (!this.editingOrder || this.asalPesananList.length > 0)) {
+          this.formError = 'Silakan pilih asal pesanan terlebih dahulu.';
+          return;
+        }
+
         var produkId = '';
         var namaProduk = '';
         if (this.selectedProdukObj) {
@@ -437,8 +529,9 @@
           return;
         }
 
-        if (!this.form.selectedSisi.length) {
-          this.formError = 'Pilih minimal 1 sisi sablon.';
+        var tpl = this.selectedTemplateObj;
+        if (!tpl || !Array.isArray(tpl.sisiList) || !tpl.sisiList.length) {
+          this.formError = 'Silakan pilih 1 template sisi sablon.';
           return;
         }
 
@@ -495,9 +588,22 @@
 
           var payload = {
             namaPemesan: namaPemesan,
+            asalPesananId: asalPesananId,
+            namaAsalPesanan: namaAsalPesanan,
             produkId: produkId,
             namaProduk: namaProduk,
-            namaSisi: this.form.selectedSisi.slice(),
+            templateSisiId: tpl.id === '__snapshot_tpl__' ? '' : tpl.id,
+            namaTemplateSisi: tpl.namaTemplate,
+            namaSisi: tpl.sisiList.slice(),
+            sisiGroupings: Array.isArray(tpl.groupings)
+              ? tpl.groupings.map(function (g) {
+                  return {
+                    id: g.id,
+                    namaGrouping: g.namaGrouping,
+                    sisi: Array.isArray(g.sisi) ? g.sisi.slice() : []
+                  };
+                })
+              : [],
             jumlahProduk: jumlah,
             fileDesigns: mergedFiles,
             expedisiId: expedisiId,
@@ -512,13 +618,12 @@
               this.editingOrder.sisiProgress
             );
 
-            // Hapus file lama yang ditandai hapus di Google Drive (best-effort)
             if (this.driveReady && this.form.removedFileIds.length > 0) {
               for (var i = 0; i < this.form.removedFileIds.length; i++) {
                 try {
                   await global.ZcpDriveService.deleteFile(this.form.removedFileIds[i]);
                 } catch (driveErr) {
-                  // Abaikan kegagalan hapus file Drive agar update Firestore tetap sukses
+                  // Abaikan kegagalan hapus file Drive
                 }
               }
             }
@@ -639,7 +744,7 @@
           <div class="panel-toolbar">
             <div class="panel-heading">
               <h2>Daftar Pesanan Sablon</h2>
-              <p>Kelola pesanan pelanggan, pilihan sisi produk, file desain, dan expedisi.</p>
+              <p>Kelola pesanan pelanggan, asal pesanan, template sisi produk, file desain, dan expedisi.</p>
             </div>
 
             <div class="panel-actions">
@@ -649,7 +754,7 @@
                   v-model="searchQuery"
                   type="text"
                   class="form-control"
-                  placeholder="Cari pemesan, produk, sisi..."
+                  placeholder="Cari pemesan, asal, produk..."
                   aria-label="Cari pesanan"
                 />
                 <button
@@ -667,6 +772,13 @@
                 <option value="all">Semua Status</option>
                 <option value="active">Diproses</option>
                 <option value="done">Selesai</option>
+              </select>
+
+              <select v-model="asalFilter" class="filter-select" aria-label="Filter asal pesanan">
+                <option value="">Semua Asal</option>
+                <option v-for="aName in asalFilterOptions" :key="aName" :value="aName">
+                  {{ aName }}
+                </option>
               </select>
 
               <select v-model="produkFilter" class="filter-select" aria-label="Filter produk">
@@ -692,16 +804,16 @@
             <div class="empty-state-icon">
               <span class="material-symbols-rounded">shopping_bag</span>
             </div>
-            <h3>{{ (searchQuery || statusFilter !== 'all' || produkFilter) ? 'Pesanan tidak ditemukan' : 'Belum ada data pesanan' }}</h3>
+            <h3>{{ (searchQuery || statusFilter !== 'all' || produkFilter || asalFilter) ? 'Pesanan tidak ditemukan' : 'Belum ada data pesanan' }}</h3>
             <p>
               {{
-                (searchQuery || statusFilter !== 'all' || produkFilter)
+                (searchQuery || statusFilter !== 'all' || produkFilter || asalFilter)
                   ? 'Coba ubah kata kunci pencarian atau reset filter di atas.'
-                  : (isReadOnly ? 'Belum ada data pesanan yang tercatat.' : 'Tambahkan pesanan pertama dengan memilih produk, sisi sablon, dan expedisi dari Master Data.')
+                  : (isReadOnly ? 'Belum ada data pesanan yang tercatat.' : 'Tambahkan pesanan pertama dengan memilih produk, template sisi, asal pesanan, dan expedisi.')
               }}
             </p>
             <button
-              v-if="!isReadOnly && !(searchQuery || statusFilter !== 'all' || produkFilter)"
+              v-if="!isReadOnly && !(searchQuery || statusFilter !== 'all' || produkFilter || asalFilter)"
               type="button"
               class="btn btn-primary"
               @click="openAddModal"
@@ -716,8 +828,8 @@
               <thead>
                 <tr>
                   <th class="col-no">No</th>
-                  <th>Pemesan</th>
-                  <th>Produk &amp; Sisi</th>
+                  <th>Pemesan &amp; Asal</th>
+                  <th>Produk &amp; Template Sisi</th>
                   <th>Jumlah</th>
                   <th>File Design</th>
                   <th>Expedisi</th>
@@ -731,7 +843,7 @@
                   <td class="col-no" data-label="No">
                     {{ (localPageSize === 'all' ? 0 : (currentPage - 1) * Number(localPageSize)) + index + 1 }}
                   </td>
-                  <td data-label="Pemesan">
+                  <td data-label="Pemesan & Asal">
                     <div>
                       <div class="item-title-cell">
                         <span class="item-mini-icon">
@@ -739,13 +851,24 @@
                         </span>
                         <span>{{ order.namaPemesan }}</span>
                       </div>
+                      <div v-if="order.namaAsalPesanan" style="margin-top: 5px;">
+                        <span class="asal-badge">
+                          <span class="material-symbols-rounded" style="font-size: 13px;">storefront</span>
+                          <span>{{ order.namaAsalPesanan }}</span>
+                        </span>
+                      </div>
                       <div v-if="order.catatan" class="note-preview" :title="order.catatan">
                         {{ order.catatan }}
                       </div>
                     </div>
                   </td>
-                  <td class="sisi-cell" data-label="Produk & Sisi">
-                    <div style="font-weight: 600; margin-bottom: 6px;">{{ order.namaProduk }}</div>
+                  <td class="sisi-cell" data-label="Produk & Template">
+                    <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 6px;">
+                      <strong>{{ order.namaProduk }}</strong>
+                      <span v-if="order.namaTemplateSisi" class="template-badge">
+                        {{ order.namaTemplateSisi }}
+                      </span>
+                    </div>
                     <div class="chips-wrap">
                       <span
                         v-for="(sisi, sIdx) in order.namaSisi"
@@ -753,6 +876,12 @@
                         class="chip"
                       >
                         {{ sisi }}
+                      </span>
+                    </div>
+                    <div v-if="order.sisiGroupings && order.sisiGroupings.length" class="chips-wrap" style="margin-top: 5px;">
+                      <span v-for="grp in order.sisiGroupings" :key="grp.id" class="grouping-chip">
+                        <span class="material-symbols-rounded" style="font-size: 13px;">workspaces</span>
+                        <span>{{ grp.namaGrouping }}: {{ grp.sisi.join(' + ') }}</span>
                       </span>
                     </div>
                   </td>
@@ -858,7 +987,7 @@
                   <div style="flex: 1;">
                     <strong>Master Data belum lengkap.</strong>
                     <div>
-                      Pastikan Master Produk dan Master Expedisi sudah terisi sebelum membuat pesanan.
+                      Pastikan Master Produk, Master Expedisi, dan Master Asal Pesanan sudah terisi sebelum membuat pesanan.
                     </div>
                     <button
                       type="button"
@@ -894,20 +1023,31 @@
                   </div>
 
                   <div class="form-group">
-                    <label class="form-label" for="pesanan-jumlah">
-                      Jumlah Produk (pcs) <span class="required">*</span>
+                    <label class="form-label" for="pesanan-asal">
+                      Asal Pesanan <span class="required">*</span>
                     </label>
-                    <input
-                      id="pesanan-jumlah"
-                      v-model.number="form.jumlahProduk"
-                      type="number"
-                      min="1"
-                      step="1"
-                      class="form-control"
-                      placeholder="Contoh: 20"
+                    <select
+                      id="pesanan-asal"
+                      v-model="form.selectedAsalKey"
+                      class="form-select"
                       :disabled="saving"
                       required
-                    />
+                    >
+                      <option value="" disabled>-- Pilih Asal Pesanan --</option>
+                      <option
+                        v-if="form.selectedAsalKey === '__snapshot__'"
+                        value="__snapshot__"
+                      >
+                        {{ form.snapshotAsalName }} (Master dihapus)
+                      </option>
+                      <option
+                        v-for="asal in asalPesananList"
+                        :key="asal.id"
+                        :value="asal.id"
+                      >
+                        {{ asal.namaAsal }}
+                      </option>
+                    </select>
                   </div>
                 </div>
 
@@ -936,7 +1076,57 @@
                         :key="p.id"
                         :value="p.id"
                       >
-                        {{ p.namaProduk }} ({{ p.namaSisi.length }} sisi)
+                        {{ p.namaProduk }} ({{ getProductTemplateCount(p) }} template)
+                      </option>
+                    </select>
+                  </div>
+
+                  <div class="form-group">
+                    <label class="form-label" for="pesanan-jumlah">
+                      Jumlah Produk (pcs) <span class="required">*</span>
+                    </label>
+                    <input
+                      id="pesanan-jumlah"
+                      v-model.number="form.jumlahProduk"
+                      type="number"
+                      min="1"
+                      step="1"
+                      class="form-control"
+                      placeholder="Contoh: 20"
+                      :disabled="saving"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div class="form-row-2">
+                  <!-- Pilih 1 Template Sisi (Single Select) -->
+                  <div class="form-group">
+                    <label class="form-label" for="pesanan-template-sisi">
+                      Pilih Template Sisi <span class="required">*</span>
+                    </label>
+                    <select
+                      id="pesanan-template-sisi"
+                      v-model="form.selectedTemplateKey"
+                      class="form-select"
+                      :disabled="saving || !form.selectedProdukKey"
+                      required
+                    >
+                      <option value="" disabled>
+                        {{ form.selectedProdukKey ? '-- Pilih 1 Template Sisi --' : '-- Pilih produk dulu --' }}
+                      </option>
+                      <option
+                        v-if="form.selectedTemplateKey === '__snapshot_tpl__' && form.snapshotTemplate"
+                        value="__snapshot_tpl__"
+                      >
+                        {{ form.snapshotTemplate.namaTemplate }} (Tersimpan)
+                      </option>
+                      <option
+                        v-for="tpl in availableTemplates"
+                        :key="tpl.id"
+                        :value="tpl.id"
+                      >
+                        {{ tpl.namaTemplate }} ({{ tpl.sisiList.length }} sisi)
                       </option>
                     </select>
                   </div>
@@ -970,46 +1160,34 @@
                   </div>
                 </div>
 
-                <!-- Dynamic Multiple Select Nama Sisi -->
-                <div class="form-group">
-                  <div class="sisi-header-row">
-                    <label class="form-label" style="margin: 0;">
-                      Pilih Nama Sisi <span class="required">*</span>
-                    </label>
-                    <div v-if="availableSisi.length" class="sisi-mini-actions">
-                      <span class="form-hint">
-                        {{ form.selectedSisi.length }} dari {{ availableSisi.length }} dipilih
-                      </span>
-                      <button type="button" class="link-btn" :disabled="saving" @click="selectAllSisi">
-                        Pilih Semua
-                      </button>
-                      <button type="button" class="link-btn" :disabled="saving" @click="clearSisi">
-                        Reset
-                      </button>
+                <!-- Preview Sisi & Grouping dari Template Terpilih -->
+                <div v-if="selectedTemplateObj" class="template-preview-box">
+                  <div class="template-preview-head">
+                    <strong>Sisi pada Template "{{ selectedTemplateObj.namaTemplate }}"</strong>
+                    <span class="badge-count">{{ selectedTemplateObj.sisiList.length }} sisi</span>
+                  </div>
+                  <div class="chips-wrap" style="margin-top: 6px;">
+                    <span v-for="(sisi, sIdx) in selectedTemplateObj.sisiList" :key="sIdx" class="chip">
+                      {{ sisi }}
+                    </span>
+                  </div>
+                  <div
+                    v-if="selectedTemplateObj.groupings && selectedTemplateObj.groupings.length"
+                    style="margin-top: 8px;"
+                  >
+                    <div class="form-hint" style="margin-bottom: 4px;">
+                      Grouping sablon aktif (otomatis digabung saat input Manajemen Sablon):
                     </div>
-                  </div>
-
-                  <div v-if="!form.selectedProdukKey" class="form-hint">
-                    Pilih produk terlebih dahulu untuk menampilkan pilihan sisi.
-                  </div>
-                  <div v-else-if="!availableSisi.length" class="form-hint">
-                    Produk ini belum memiliki daftar sisi.
-                  </div>
-                  <div v-else class="sisi-selector-grid">
-                    <label
-                      v-for="sisi in availableSisi"
-                      :key="sisi"
-                      class="sisi-option"
-                      :class="{ selected: isSisiSelected(sisi) }"
-                    >
-                      <input
-                        type="checkbox"
-                        :checked="isSisiSelected(sisi)"
-                        :disabled="saving"
-                        @change="toggleSisi(sisi)"
-                      />
-                      <span>{{ sisi }}</span>
-                    </label>
+                    <div class="chips-wrap">
+                      <span
+                        v-for="grp in selectedTemplateObj.groupings"
+                        :key="grp.id"
+                        class="grouping-chip"
+                      >
+                        <span class="material-symbols-rounded" style="font-size: 13px;">workspaces</span>
+                        <span>{{ grp.namaGrouping }}: {{ grp.sisi.join(' + ') }}</span>
+                      </span>
+                    </div>
                   </div>
                 </div>
 

@@ -7,7 +7,8 @@
     name: 'MasterDataView',
     components: {
       MasterProdukPanel: global.ZcpComponents.MasterProdukPanel,
-      MasterExpedisiPanel: global.ZcpComponents.MasterExpedisiPanel
+      MasterExpedisiPanel: global.ZcpComponents.MasterExpedisiPanel,
+      MasterAsalPesananPanel: global.ZcpComponents.MasterAsalPesananPanel
     },
     props: {
       produkList: {
@@ -22,29 +23,51 @@
           return [];
         }
       },
+      asalPesananList: {
+        type: Array,
+        default: function () {
+          return [];
+        }
+      },
       loadingProduk: { type: Boolean, default: false },
       loadingExpedisi: { type: Boolean, default: false },
+      loadingAsalPesanan: { type: Boolean, default: false },
       defaultPageSize: {
         type: [Number, String],
         default: 10
       }
     },
-    emits: ['notify', 'request-confirm', 'refresh-produk', 'refresh-expedisi'],
+    emits: [
+      'notify',
+      'request-confirm',
+      'refresh-produk',
+      'refresh-expedisi',
+      'refresh-asal-pesanan'
+    ],
     data: function () {
       return {
         activeTab: 'produk'
       };
     },
     computed: {
-      totalSisi: function () {
+      totalTemplateCount: function () {
         return this.produkList.reduce(function (sum, item) {
-          return sum + (Array.isArray(item.namaSisi) ? item.namaSisi.length : 0);
+          var tpls =
+            global.ZcpMasterService && global.ZcpMasterService.normalizeTemplateSisiList
+              ? global.ZcpMasterService.normalizeTemplateSisiList(
+                  item.templateSisi,
+                  item.namaSisi
+                )
+              : Array.isArray(item.templateSisi)
+              ? item.templateSisi
+              : [];
+          return sum + tpls.length;
         }, 0);
       }
     },
     template: `
       <div>
-        <div class="kpi-grid">
+        <div class="kpi-grid kpi-grid-4">
           <div class="kpi-card">
             <div class="kpi-top">
               <div>
@@ -64,8 +87,8 @@
           <div class="kpi-card">
             <div class="kpi-top">
               <div>
-                <div class="kpi-label">Total Sisi Terdaftar</div>
-                <div class="kpi-value">{{ totalSisi }}</div>
+                <div class="kpi-label">Template Sisi</div>
+                <div class="kpi-value">{{ totalTemplateCount }}</div>
               </div>
               <div class="kpi-icon-box">
                 <span class="material-symbols-rounded">layers</span>
@@ -73,7 +96,7 @@
             </div>
             <div class="kpi-divider"></div>
             <div class="kpi-footer">
-              Opsi sisi untuk dipilih pada pesanan
+              Template sisi siap dipilih pada pesanan
             </div>
           </div>
 
@@ -90,6 +113,22 @@
             <div class="kpi-divider"></div>
             <div class="kpi-footer">
               <span class="kpi-highlight">Siap pakai</span> untuk pengiriman order
+            </div>
+          </div>
+
+          <div class="kpi-card">
+            <div class="kpi-top">
+              <div>
+                <div class="kpi-label">Asal Pesanan</div>
+                <div class="kpi-value">{{ asalPesananList.length }}</div>
+              </div>
+              <div class="kpi-icon-box">
+                <span class="material-symbols-rounded">storefront</span>
+              </div>
+            </div>
+            <div class="kpi-divider"></div>
+            <div class="kpi-footer">
+              Saluran masuk pesanan (Offline/Marketplace)
             </div>
           </div>
         </div>
@@ -120,6 +159,19 @@
             <span>Master Expedisi</span>
             <span class="tab-count">{{ expedisiList.length }}</span>
           </button>
+
+          <button
+            type="button"
+            role="tab"
+            :aria-selected="activeTab === 'asal-pesanan'"
+            class="tab-btn"
+            :class="{ active: activeTab === 'asal-pesanan' }"
+            @click="activeTab = 'asal-pesanan'"
+          >
+            <span class="material-symbols-rounded" style="font-size: 19px;">storefront</span>
+            <span>Master Asal Pesanan</span>
+            <span class="tab-count">{{ asalPesananList.length }}</span>
+          </button>
         </div>
 
         <master-produk-panel
@@ -133,7 +185,7 @@
         ></master-produk-panel>
 
         <master-expedisi-panel
-          v-else
+          v-else-if="activeTab === 'expedisi'"
           :expedisi-list="expedisiList"
           :loading="loadingExpedisi"
           :default-page-size="defaultPageSize"
@@ -141,6 +193,16 @@
           @request-confirm="$emit('request-confirm', $event)"
           @changed="$emit('refresh-expedisi')"
         ></master-expedisi-panel>
+
+        <master-asal-pesanan-panel
+          v-else
+          :asal-pesanan-list="asalPesananList"
+          :loading="loadingAsalPesanan"
+          :default-page-size="defaultPageSize"
+          @notify="$emit('notify', $event)"
+          @request-confirm="$emit('request-confirm', $event)"
+          @changed="$emit('refresh-asal-pesanan')"
+        ></master-asal-pesanan-panel>
       </div>
     `
   };

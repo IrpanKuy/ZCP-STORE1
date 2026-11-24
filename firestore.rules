@@ -36,8 +36,35 @@ service cloud.firestore {
       return val is string && val.size() > 0 && val.size() <= 200;
     }
 
-    // Karyawan hanya boleh memperbarui status selesai / progres sablon pada pesanan
-    // dan hanya boleh membatalkan status selesai jika dirinya yang menandai selesai.
+    // Admin tidak boleh membatalkan pesanan yang sudah berstatus selesai (hanya Superadmin)
+    // dan menandai selesai wajib memiliki kontribusiTotal == jumlahProduk.
+    function adminPesananUpdateAllowed() {
+      return resource.data.statusSelesai != true
+        ? (
+            request.resource.data.statusSelesai != true
+            || request.resource.data.get('kontribusiTotal', 0) == request.resource.data.jumlahProduk
+          )
+        : (
+            request.resource.data.statusSelesai == true
+            && (
+              request.resource.data.diff(resource.data).affectedKeys().hasOnly(['sisiProgress', 'updatedAt'])
+              || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['tanggalMulai', 'tanggalDeadline', 'updatedAt'])
+              || (
+                resource.data.completedByUid == request.auth.uid
+                && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                  'kontribusi',
+                  'kontribusiUids',
+                  'kontribusiTotal',
+                  'updatedAt'
+                ])
+              )
+            )
+          );
+    }
+
+    // Karyawan hanya boleh memperbarui status selesai / progres sablon / kontribusi pada pesanan;
+    // tidak boleh membatalkan pesanan yang sudah selesai (hanya Superadmin),
+    // serta hanya boleh memperbarui kontribusi pesanan selesai bila menyetujui request Borongan sebagai penyelesai.
     function karyawanPesananUpdateAllowed() {
       return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'statusSelesai',
@@ -45,12 +72,35 @@ service cloud.firestore {
           'completedByUid',
           'completedByName',
           'sisiProgress',
+          'kontribusi',
+          'kontribusiUids',
+          'kontribusiTotal',
           'updatedAt'
         ])
         && (
           resource.data.statusSelesai != true
-          || request.resource.data.statusSelesai == true
-          || resource.data.completedByUid == request.auth.uid
+            ? (
+                (!('kontribusiTotal' in request.resource.data) || request.resource.data.kontribusiTotal <= resource.data.jumlahProduk)
+                && (
+                  request.resource.data.statusSelesai != true
+                  || request.resource.data.get('kontribusiTotal', 0) == resource.data.jumlahProduk
+                )
+              )
+            : (
+                request.resource.data.statusSelesai == true
+                && (
+                  request.resource.data.diff(resource.data).affectedKeys().hasOnly(['sisiProgress', 'updatedAt'])
+                  || (
+                    resource.data.completedByUid == request.auth.uid
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                      'kontribusi',
+                      'kontribusiUids',
+                      'kontribusiTotal',
+                      'updatedAt'
+                    ])
+                  )
+                )
+              )
         );
     }
 
@@ -99,14 +149,22 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
-    // Master Data Produk (namaProduk + array namaSisi minimal 1 item)
+    // Master Data Produk (namaProduk + array namaSisi minimal 1 item + templateSisi opsional)
     match /master_produk/{produkId} {
       allow read, delete: if isActiveUser();
       allow create, update: if isActiveUser()
         && isNonEmptyString(request.resource.data.namaProduk)
         && request.resource.data.namaSisi is list
         && request.resource.data.namaSisi.size() > 0
-        && request.resource.data.namaSisi.size() <= 50;
+        && request.resource.data.namaSisi.size() <= 50
+        && (
+          !('templateSisi' in request.resource.data)
+          || (
+            request.resource.data.templateSisi is list
+            && request.resource.data.templateSisi.size() > 0
+            && request.resource.data.templateSisi.size() <= 50
+          )
+        );
     }
 
     // Master Data Expedisi (namaExpedisi)
@@ -116,11 +174,35 @@ service cloud.firestore {
         && isNonEmptyString(request.resource.data.namaExpedisi);
     }
 
-    // Koleksi Pesanan (Karyawan read-only di menu Pesanan; hanya boleh update status/progres operasional)
+    // Master Data Asal Pesanan (namaAsal)
+    match /master_asal_pesanan/{asalId} {
+      allow read, delete: if isActiveUser();
+      allow create, update: if isActiveUser()
+        && isNonEmptyString(request.resource.data.namaAsal);
+    }
+
+    // Koleksi Pesanan (Karyawan read-only di menu Pesanan; hanya Superadmin boleh membatalkan Selesai)
     match /pesanan/{pesananId} {
       allow read: if isActiveUser();
       allow create, delete: if isAdminOrSuper();
-      allow update: if isAdminOrSuper() || (isKaryawan() && karyawanPesananUpdateAllowed());
+      allow update: if isSuperAdmin()
+        || (isAdmin() && adminPesananUpdateAllowed())
+        || (isKaryawan() && karyawanPesananUpdateAllowed());
+    }
+
+    // Pengajuan Perubahan Kontribusi (Borongan)
+    match /kontribusi_requests/{requestId} {
+      allow read: if isSuperAdmin()
+        || (isActiveUser() && request.auth.uid in resource.data.involvedUids);
+      allow create: if isActiveUser()
+        && request.resource.data.requestedByUid == request.auth.uid
+        && request.resource.data.completedByUid != request.auth.uid
+        && request.resource.data.status == 'pending'
+        && request.auth.uid in request.resource.data.involvedUids;
+      allow update: if (isSuperAdmin() || (isActiveUser() && resource.data.completedByUid == request.auth.uid))
+        && resource.data.status == 'pending'
+        && request.resource.data.status in ['approved', 'rejected'];
+      allow delete: if isSuperAdmin();
     }
 
     // Koleksi Manajemen Sablon (Karyawan hanya boleh checklist/selesai/batal selesai milik sendiri)

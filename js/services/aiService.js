@@ -8,7 +8,13 @@
   var MAX_AI_LOGS = 20;
   var MAX_FILE_SIZE_BYTES = 15 * 1024 * 1024;
   var ALLOWED_MIME_TYPES = ['image/png', 'image/jpeg', 'application/pdf'];
-  var ALLOWED_COLLECTIONS = ['pesanan', 'sablon', 'master_produk', 'master_expedisi'];
+  var ALLOWED_COLLECTIONS = [
+    'pesanan',
+    'sablon',
+    'master_produk',
+    'master_expedisi',
+    'master_asal_pesanan'
+  ];
 
   function getDbOrThrow() {
     var db = global.ZcpFirebase && global.ZcpFirebase.getDb();
@@ -214,6 +220,7 @@
       return {
         id: p.id,
         namaProduk: p.namaProduk,
+        templateSisi: Array.isArray(p.templateSisi) ? p.templateSisi : [],
         namaSisi: Array.isArray(p.namaSisi) ? p.namaSisi : []
       };
     });
@@ -223,13 +230,24 @@
         namaExpedisi: e.namaExpedisi
       };
     });
+    var asalPesanan = (ctx.asalPesananList || []).map(function (a) {
+      return {
+        id: a.id,
+        namaAsal: a.namaAsal
+      };
+    });
     var pesanan = (ctx.pesananList || []).slice(0, 80).map(function (o) {
       return {
         id: o.id,
         namaPemesan: o.namaPemesan,
+        namaAsalPesanan: o.namaAsalPesanan || '',
+        asalPesananId: o.asalPesananId || '',
         produkId: o.produkId,
         namaProduk: o.namaProduk,
+        templateSisiId: o.templateSisiId || '',
+        namaTemplateSisi: o.namaTemplateSisi || '',
         namaSisi: Array.isArray(o.namaSisi) ? o.namaSisi : [],
+        sisiGroupings: Array.isArray(o.sisiGroupings) ? o.sisiGroupings : [],
         jumlahProduk: Number(o.jumlahProduk) || 0,
         sisiProgress: o.sisiProgress || {},
         namaExpedisi: o.namaExpedisi || '',
@@ -263,6 +281,7 @@
       tanggalHariIni: getTodayIso(),
       master_produk: produk,
       master_expedisi: expedisi,
+      master_asal_pesanan: asalPesanan,
       pesanan: pesanan,
       sablon: sablon
     };
@@ -279,7 +298,7 @@
       '  "operations": [\n' +
       '    {\n' +
       '      "type": "CREATE" | "UPDATE" | "DELETE",\n' +
-      '      "collection": "pesanan" | "sablon" | "master_produk" | "master_expedisi",\n' +
+      '      "collection": "pesanan" | "sablon" | "master_produk" | "master_expedisi" | "master_asal_pesanan",\n' +
       '      "docId": "wajib diisi persis id dari konteks saat UPDATE atau DELETE; kosongkan saat CREATE",\n' +
       '      "label": "Label ringkas item (misal: Pesanan Rompi - Pelanggan Umum 13 pcs)",\n' +
       '      "reason": "Alasan singkat perubahan",\n' +
@@ -288,12 +307,13 @@
       '  ]\n' +
       '}\n\n' +
       'ATURAN KOLEKSI & DEFAULT CERDAS:\n' +
-      '1. `pesanan`: field valid = { namaPemesan, produkId, namaProduk, namaSisi (array string), jumlahProduk (integer >=1), expedisiId, namaExpedisi, catatan, tanggalMulai (YYYY-MM-DD), tanggalDeadline (YYYY-MM-DD), statusSelesai (boolean) }.\n' +
+      '1. `pesanan`: field valid = { namaPemesan, asalPesananId, namaAsalPesanan, produkId, namaProduk, templateSisiId, namaTemplateSisi, namaSisi (array string), jumlahProduk (integer >=1), expedisiId, namaExpedisi, catatan, tanggalMulai (YYYY-MM-DD), tanggalDeadline (YYYY-MM-DD), statusSelesai (boolean) }.\n' +
       '   - Jika user memberi perintah singkat mis. "buatkan pesanan Rompi 13 pcs" tanpa menyebut nama pemesan, isi namaPemesan = "Pelanggan Umum" dan langsung usulkan operasi CREATE (jangan bertanya balik jika produk & jumlah sudah jelas).\n' +
-      '   - Cocokkan namaProduk dengan `master_produk` di konteks (abaikan huruf besar/kecil). Jika cocok, salin `produkId`, `namaProduk`, dan `namaSisi` dari master. Jika produk belum ada di master, set `produkId: ""`, isi `namaProduk`, dan default `namaSisi: ["Depan", "Belakang"]`.\n' +
-      '2. `sablon`: field valid = { namaSablon, jumlahPerulangan (integer >=1), perulanganChecks (array boolean), catatan, statusSelesai (boolean), pesananItems: [{ pesananId, namaPemesan, namaProduk, jumlahProduk, sisiQuantities: { [namaSisi]: integer } }] }.\n' +
-      '3. `master_produk`: field valid = { namaProduk, namaSisi (array string minimal 1 item) }.\n' +
+      '   - Cocokkan namaProduk dengan `master_produk` & namaAsalPesanan dengan `master_asal_pesanan` di konteks. Jika cocok dengan produk yang memiliki `templateSisi`, pilih `templateSisiId`/`namaTemplateSisi` yang sesuai (atau template pertama jika tidak disebutkan), dan salin `sisiList`-nya ke `namaSisi`.\n' +
+      '2. `sablon`: field valid = { namaSablon, jumlahPerulangan (integer >=1), perulanganChecks (array boolean), catatan, statusSelesai (boolean), pesananItems: [{ pesananId, namaPemesan, namaProduk, jumlahProduk, sisiQuantities: { [namaSisiAtauGrouping]: integer } }] }.\n' +
+      '3. `master_produk`: field valid = { namaProduk, templateSisi: [{ namaTemplate, sisiList (array string), groupings: [{ namaGrouping, sisi (array string) }] }], namaSisi (array string) }.\n' +
       '4. `master_expedisi`: field valid = { namaExpedisi }.\n' +
+      '5. `master_asal_pesanan`: field valid = { namaAsal }.\n' +
       '5. Untuk `UPDATE` dan `DELETE`: DILARANG mengarang `docId`. Gunakan `id` persis dari data konteks di bawah. Jika record yang dimaksud user ambigu atau tidak ditemukan, set `"operations": []` dan jelaskan di `"reply"`.\n' +
       '6. Jika user hanya bertanya / meminta ringkasan / membaca isi file tanpa perintah mengubah data, set `"operations": []`.\n' +
       '7. Untuk BULK CRUD (mis. mengimpor daftar pesanan dari PDF/foto, membuat banyak pesanan, menandai selesai banyak pesanan, atau menghapus banyak item sekaligus), masukkan seluruh operasinya ke array `"operations"` agar user dapat mengonfirmasi semuanya dalam satu modal.\n\n' +
@@ -380,13 +400,62 @@
     );
   }
 
+  function findMatchingAsal(data, asalList) {
+    var list = asalList || [];
+    if (!list.length) return null;
+    if (data.asalPesananId) {
+      var byId = list.find(function (a) {
+        return a.id === data.asalPesananId;
+      });
+      if (byId) return byId;
+    }
+    var targetName = normalizeText(data.namaAsalPesanan);
+    if (!targetName) return null;
+    return (
+      list.find(function (a) {
+        return normalizeText(a.namaAsal) === targetName;
+      }) ||
+      list.find(function (a) {
+        var an = normalizeText(a.namaAsal);
+        return an.indexOf(targetName) !== -1 || targetName.indexOf(an) !== -1;
+      }) ||
+      null
+    );
+  }
+
+  function findMatchingTemplate(produk, data) {
+    if (!produk) return null;
+    var templates =
+      global.ZcpMasterService && global.ZcpMasterService.normalizeTemplateSisiList
+        ? global.ZcpMasterService.normalizeTemplateSisiList(produk.templateSisi, produk.namaSisi)
+        : Array.isArray(produk.templateSisi)
+        ? produk.templateSisi
+        : [];
+    if (!templates.length) return null;
+    if (data.templateSisiId) {
+      var byId = templates.find(function (t) {
+        return t.id === data.templateSisiId;
+      });
+      if (byId) return byId;
+    }
+    var target = normalizeText(data.namaTemplateSisi);
+    if (target) {
+      var byName = templates.find(function (t) {
+        return normalizeText(t.namaTemplate) === target;
+      });
+      if (byName) return byName;
+    }
+    return templates[0];
+  }
+
   function findExistingDoc(collection, docId, storeContext) {
     var ctx = storeContext || {};
     var map = {
       pesanan: ctx.pesananList || [],
       sablon: ctx.sablonList || [],
       master_produk: ctx.produkList || [],
-      master_expedisi: ctx.expedisiList || []
+      master_expedisi: ctx.expedisiList || [],
+      master_asal_pesanan: ctx.asalPesananList || []
     };
     var list = map[collection] || [];
     return (
@@ -419,7 +488,9 @@
   function buildPesananPayload(type, rawData, existingDoc, storeContext) {
     var data = rawData && typeof rawData === 'object' ? rawData : {};
     var matchedProduk = findMatchingProduk(data, storeContext.produkList);
+    var matchedTpl = findMatchingTemplate(matchedProduk, data);
     var matchedExp = findMatchingExpedisi(data, storeContext.expedisiList);
+    var matchedAsal = findMatchingAsal(data, storeContext.asalPesananList);
 
     if (type === 'CREATE') {
       var namaPemesan = String(data.namaPemesan || '').trim() || 'Pelanggan Umum';
@@ -435,6 +506,8 @@
         : [];
       var namaSisi = rawSisi.length
         ? rawSisi
+        : matchedTpl && Array.isArray(matchedTpl.sisiList) && matchedTpl.sisiList.length
+        ? matchedTpl.sisiList.slice()
         : matchedProduk && Array.isArray(matchedProduk.namaSisi) && matchedProduk.namaSisi.length
         ? matchedProduk.namaSisi.slice()
         : ['Depan', 'Belakang'];
@@ -448,9 +521,18 @@
 
       return {
         namaPemesan: namaPemesan,
+        asalPesananId: matchedAsal ? matchedAsal.id : '',
+        namaAsalPesanan: matchedAsal
+          ? matchedAsal.namaAsal
+          : String(data.namaAsalPesanan || '').trim(),
         produkId: matchedProduk ? matchedProduk.id : '',
         namaProduk: namaProduk,
+        templateSisiId: matchedTpl ? matchedTpl.id : '',
+        namaTemplateSisi: matchedTpl
+          ? matchedTpl.namaTemplate
+          : String(data.namaTemplateSisi || '').trim(),
         namaSisi: namaSisi,
+        sisiGroupings: matchedTpl && Array.isArray(matchedTpl.groupings) ? matchedTpl.groupings.slice() : [],
         jumlahProduk: qty,
         sisiProgress: sisiProgress,
         fileDesigns: [],
@@ -462,7 +544,10 @@
         statusSelesai: done,
         completedAt: done ? { __zcpTsMs: Date.now() } : null,
         completedByUid: done ? actor.uid || '' : '',
-        completedByName: done ? actor.nama || actor.email || 'Admin (AI)' : ''
+        completedByName: done ? actor.nama || actor.email || 'Admin (AI)' : '',
+        kontribusi: [],
+        kontribusiUids: [],
+        kontribusiTotal: 0
       };
     }
 
@@ -656,8 +741,16 @@
           .filter(Boolean)
       : ['Depan', 'Belakang'];
     if (!namaSisi.length) namaSisi = ['Depan', 'Belakang'];
+
+    var templateSisi = [];
+    if (global.ZcpMasterService && global.ZcpMasterService.normalizeTemplateSisiList) {
+      templateSisi = global.ZcpMasterService.normalizeTemplateSisiList(data.templateSisi, namaSisi);
+      namaSisi = global.ZcpMasterService.flattenTemplateSides(templateSisi);
+    }
+
     return {
       namaProduk: String(data.namaProduk || '').trim() || 'Produk Baru',
+      templateSisi: templateSisi,
       namaSisi: namaSisi
     };
   }
@@ -666,6 +759,13 @@
     var data = rawData && typeof rawData === 'object' ? rawData : {};
     return {
       namaExpedisi: String(data.namaExpedisi || '').trim() || 'Expedisi Baru'
+    };
+  }
+
+  function buildMasterAsalPayload(rawData) {
+    var data = rawData && typeof rawData === 'object' ? rawData : {};
+    return {
+      namaAsal: String(data.namaAsal || '').trim() || 'Asal Pesanan Baru'
     };
   }
 
@@ -703,6 +803,8 @@
             payload = buildMasterProdukPayload(op.data);
           } else if (collection === 'master_expedisi') {
             payload = buildMasterExpedisiPayload(op.data);
+          } else if (collection === 'master_asal_pesanan') {
+            payload = buildMasterAsalPayload(op.data);
           }
         }
 
@@ -1175,7 +1277,11 @@
         count: recordedChanges.length,
         changes: recordedChanges,
         touchedMaster: recordedChanges.some(function (c) {
-          return c.collection === 'master_produk' || c.collection === 'master_expedisi';
+          return (
+            c.collection === 'master_produk' ||
+            c.collection === 'master_expedisi' ||
+            c.collection === 'master_asal_pesanan'
+          );
         })
       };
     },
@@ -1297,7 +1403,11 @@
       return {
         count: changes.length,
         touchedMaster: changes.some(function (c) {
-          return c.collection === 'master_produk' || c.collection === 'master_expedisi';
+          return (
+            c.collection === 'master_produk' ||
+            c.collection === 'master_expedisi' ||
+            c.collection === 'master_asal_pesanan'
+          );
         })
       };
     }

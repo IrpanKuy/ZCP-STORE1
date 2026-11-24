@@ -65,6 +65,8 @@
         :sablon-count="activeSablonCount"
         :produk-count="produkList.length"
         :expedisi-count="expedisiList.length"
+        :asal-pesanan-count="asalPesananList.length"
+        :borongan-badge-count="pendingBoronganCount"
         :users-count="usersList.length"
         @navigate="navigatePage"
         @close="sidebarOpen = false"
@@ -101,6 +103,7 @@
             :pesanan-list="pesananList"
             :produk-list="produkList"
             :expedisi-list="expedisiList"
+            :asal-pesanan-list="asalPesananList"
             :loading="loadingPesanan"
             :drive-ready="driveReady"
             :user-role="user.role"
@@ -116,6 +119,7 @@
             v-else-if="currentPage === 'operasional'"
             :pesanan-list="pesananList"
             :sablon-list="sablonList"
+            :staff-list="staffList"
             :loading="loadingPesanan"
             :user-role="user.role"
             :current-user-uid="user.uid"
@@ -143,17 +147,33 @@
             @load-more="loadMoreSablon"
           ></sablon-view>
 
+          <borongan-view
+            v-else-if="currentPage === 'borongan'"
+            :pesanan-list="pesananList"
+            :requests-list="boronganRequestsList"
+            :staff-list="staffList"
+            :user="user"
+            :loading="loadingPesanan"
+            :loading-requests="loadingBoronganRequests"
+            :default-page-size="defaultPageSize"
+            @notify="addToast"
+            @request-confirm="openConfirm"
+          ></borongan-view>
+
           <master-data-view
             v-else-if="currentPage === 'master-data'"
             :produk-list="produkList"
             :expedisi-list="expedisiList"
+            :asal-pesanan-list="asalPesananList"
             :loading-produk="loadingProduk"
             :loading-expedisi="loadingExpedisi"
+            :loading-asal-pesanan="loadingAsalPesanan"
             :default-page-size="defaultPageSize"
             @notify="addToast"
             @request-confirm="openConfirm"
             @refresh-produk="loadMasterProduk"
             @refresh-expedisi="loadMasterExpedisi"
+            @refresh-asal-pesanan="loadMasterAsalPesanan"
           ></master-data-view>
 
           <akun-karyawan-view
@@ -202,22 +222,6 @@
     </div>
 
     <!-- Komponen Global -->
-    <toast-container
-      :toasts="toasts"
-      @dismiss="dismissToast"
-    ></toast-container>
-
-    <confirm-modal
-      :visible="confirmState.visible"
-      :title="confirmState.title"
-      :message="confirmState.message"
-      :confirm-text="confirmState.confirmText"
-      :variant="confirmState.variant"
-      :loading="confirmState.loading"
-      @confirm="executeConfirm"
-      @cancel="closeConfirm"
-    ></confirm-modal>
-
     <ai-chatbot
       v-if="user && (user.role === 'superadmin' || user.role === 'admin')"
       :user="user"
@@ -225,6 +229,7 @@
       :drive-ready="driveReady"
       :produk-list="produkList"
       :expedisi-list="expedisiList"
+      :asal-pesanan-list="asalPesananList"
       :pesanan-list="pesananList"
       :sablon-list="sablonList"
       @notify="addToast"
@@ -236,6 +241,9 @@
   <!-- Vue 3 CDN -->
   <script src="https://unpkg.com/vue@3.5.13/dist/vue.global.prod.js"></script>
 
+  <!-- SweetAlert2 CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
   <!-- Firebase Compat v10 CDN -->
   <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
@@ -243,6 +251,7 @@
 
   <!-- Config & Services -->
   <script src="./js/firebase-config.js"></script>
+  <script src="./js/services/alertService.js"></script>
   <script src="./js/services/activityLogService.js"></script>
   <script src="./js/services/userService.js"></script>
   <script src="./js/services/settingsService.js"></script>
@@ -250,11 +259,10 @@
   <script src="./js/services/driveService.js"></script>
   <script src="./js/services/pesananService.js"></script>
   <script src="./js/services/sablonService.js"></script>
+  <script src="./js/services/boronganService.js"></script>
   <script src="./js/services/aiService.js"></script>
 
   <!-- Vue Components -->
-  <script src="./js/components/ToastContainer.js"></script>
-  <script src="./js/components/ConfirmModal.js"></script>
   <script src="./js/components/TablePagination.js"></script>
   <script src="./js/components/FilePreviewModal.js"></script>
   <script src="./js/components/LoginView.js"></script>
@@ -264,8 +272,10 @@
   <script src="./js/components/PesananView.js"></script>
   <script src="./js/components/OperasionalView.js"></script>
   <script src="./js/components/SablonView.js"></script>
+  <script src="./js/components/BoronganView.js"></script>
   <script src="./js/components/MasterProdukPanel.js"></script>
   <script src="./js/components/MasterExpedisiPanel.js"></script>
+  <script src="./js/components/MasterAsalPesananPanel.js"></script>
   <script src="./js/components/MasterDataView.js"></script>
   <script src="./js/components/AkunKaryawanView.js"></script>
   <script src="./js/components/ActivityLogView.js"></script>

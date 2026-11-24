@@ -7,7 +7,8 @@
     pesanan: 'Pesanan',
     sablon: 'Manajemen Sablon',
     master_produk: 'Master Produk',
-    master_expedisi: 'Master Expedisi'
+    master_expedisi: 'Master Expedisi',
+    master_asal_pesanan: 'Master Asal Pesanan'
   };
 
   var OP_LABELS = {
@@ -18,10 +19,14 @@
 
   var FIELD_LABELS = {
     namaPemesan: 'Nama Pemesan',
+    namaAsalPesanan: 'Asal Pesanan',
     namaProduk: 'Produk',
+    namaTemplateSisi: 'Template Sisi',
     namaSisi: 'Daftar Sisi',
     jumlahProduk: 'Jumlah (pcs)',
     namaExpedisi: 'Expedisi',
+    namaAsal: 'Nama Asal Pesanan',
+    templateSisi: 'Template Sisi',
     catatan: 'Catatan',
     tanggalMulai: 'Tanggal Mulai',
     tanggalDeadline: 'Deadline',
@@ -50,6 +55,12 @@
         }
       },
       expedisiList: {
+        type: Array,
+        default: function () {
+          return [];
+        }
+      },
+      asalPesananList: {
         type: Array,
         default: function () {
           return [];
@@ -359,6 +370,7 @@
             storeContext: {
               produkList: this.produkList,
               expedisiList: this.expedisiList,
+              asalPesananList: this.asalPesananList,
               pesananList: this.pesananList,
               sablonList: this.sablonList
             }
@@ -532,38 +544,55 @@
       },
       promptRollback: function (logEntry) {
         if (!logEntry || logEntry.rolledBack || this.rollingBackLogId) return;
-        this.rollbackConfirmLog = logEntry;
-      },
-      cancelRollbackPrompt: function () {
-        if (this.rollingBackLogId) return;
-        this.rollbackConfirmLog = null;
-      },
-      confirmRollbackExecution: async function () {
-        var logEntry = this.rollbackConfirmLog;
-        if (!logEntry || this.rollingBackLogId) return;
+        var self = this;
+        var changes = Array.isArray(logEntry.changes) ? logEntry.changes : [];
+        var listText = changes
+          .map(function (ch) {
+            var verb = ch.type === 'CREATE' ? 'HAPUS' : 'PULIHKAN';
+            return '[' + verb + '] ' + self.getCollectionLabel(ch.collection) + ': ' + ch.label;
+          })
+          .join('\n');
 
-        this.rollingBackLogId = logEntry.id;
-        try {
-          var res = await global.ZcpAiService.rollbackAiLog(logEntry);
-          this.rollbackConfirmLog = null;
-          this.$emit('data-mutated', {
-            touchedMaster: Boolean(res.touchedMaster)
-          });
-          this.$emit('notify', {
-            type: 'success',
+        var doRollback = async function () {
+          self.rollingBackLogId = logEntry.id;
+          try {
+            var res = await global.ZcpAiService.rollbackAiLog(logEntry);
+            self.$emit('data-mutated', {
+              touchedMaster: Boolean(res.touchedMaster)
+            });
+            self.$emit('notify', {
+              type: 'success',
+              message:
+                'Rollback berhasil! ' +
+                res.count +
+                ' perubahan AI telah dikembalikan ke kondisi sebelumnya.'
+            });
+            await self.loadAiLogs(true);
+          } finally {
+            self.rollingBackLogId = null;
+          }
+        };
+
+        if (global.ZcpAlert && typeof global.ZcpAlert.confirm === 'function') {
+          global.ZcpAlert.confirm({
+            title: 'Konfirmasi Rollback Perubahan AI',
             message:
-              'Rollback berhasil! ' +
-              res.count +
-              ' perubahan AI telah dikembalikan ke kondisi sebelumnya.'
+              'Kembalikan ' +
+              changes.length +
+              ' perubahan berikut ke kondisi sebelum dieksekusi?\n\n' +
+              listText,
+            confirmText: 'Ya, Rollback Sekarang',
+            variant: 'danger',
+            icon: 'warning',
+            onConfirm: doRollback
           });
-          await this.loadAiLogs(true);
-        } catch (err) {
-          this.$emit('notify', {
-            type: 'error',
-            message: (err && err.message) || 'Gagal melakukan Rollback AI.'
+        } else {
+          doRollback().catch(function (err) {
+            self.$emit('notify', {
+              type: 'error',
+              message: (err && err.message) || 'Gagal melakukan Rollback AI.'
+            });
           });
-        } finally {
-          this.rollingBackLogId = null;
         }
       }
     },
@@ -1069,67 +1098,6 @@
                       : 'Konfirmasi & Eksekusi (' + selectedOpsCount + ')'
                   }}
                 </span>
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <!-- MODAL KONFIRMASI ROLLBACK -->
-        <div
-          v-if="rollbackConfirmLog"
-          class="modal-overlay ai-confirm-backdrop"
-          @click.self="cancelRollbackPrompt"
-        >
-          <div class="modal-card">
-            <div class="modal-header">
-              <h2 class="modal-title" style="display: flex; align-items: center; gap: 8px;">
-                <span class="material-symbols-rounded" style="color: var(--accent-danger);">undo</span>
-                <span>Konfirmasi Rollback Perubahan AI</span>
-              </h2>
-              <button
-                type="button"
-                class="btn btn-ghost btn-icon-sm"
-                :disabled="Boolean(rollingBackLogId)"
-                @click="cancelRollbackPrompt"
-              >
-                <span class="material-symbols-rounded">close</span>
-              </button>
-            </div>
-            <div class="modal-body">
-              <p style="font-size: 13.5px; line-height: 1.5; margin-bottom: 12px;">
-                Aksi ini akan mengembalikan <strong>{{ (rollbackConfirmLog.changes || []).length }}</strong> perubahan AI berikut ke kondisi persis sebelum dieksekusi (data yang dibuat akan dihapus, data yang diubah/dihapus akan dipulihkan):
-              </p>
-              <div class="ai-log-changes-list" style="max-height: 220px; overflow-y: auto;">
-                <div
-                  v-for="(ch, idx) in rollbackConfirmLog.changes"
-                  :key="idx"
-                  class="ai-log-change-chip"
-                >
-                  <span class="ai-op-mini-badge" :class="String(ch.type || '').toLowerCase()">
-                    {{ ch.type === 'CREATE' ? 'HAPUS' : 'PULIHKAN' }}
-                  </span>
-                  <span class="ai-col-mini">{{ getCollectionLabel(ch.collection) }}</span>
-                  <span class="ai-label-mini">{{ ch.label }}</span>
-                </div>
-              </div>
-            </div>
-            <div class="modal-footer">
-              <button
-                type="button"
-                class="btn btn-secondary"
-                :disabled="Boolean(rollingBackLogId)"
-                @click="cancelRollbackPrompt"
-              >
-                Batal
-              </button>
-              <button
-                type="button"
-                class="btn btn-danger"
-                :disabled="Boolean(rollingBackLogId)"
-                @click="confirmRollbackExecution"
-              >
-                <span v-if="rollingBackLogId" class="spinner spinner-sm"></span>
-                <span>{{ rollingBackLogId ? 'Mengembalikan...' : 'Ya, Rollback Sekarang' }}</span>
               </button>
             </div>
           </div>

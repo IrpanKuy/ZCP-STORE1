@@ -81,6 +81,104 @@
     return data.statusSelesai ? count : 0;
   }
 
+  function roundQty(num) {
+    var n = Number(num) || 0;
+    return Math.round(n * 100) / 100;
+  }
+
+  function buildOrderSablonSlots(order) {
+    var orderSides = Array.isArray(order && order.namaSisi) ? order.namaSisi : [];
+    var sideCanonical = {};
+    orderSides.forEach(function (s) {
+      var clean = String(s || '').trim();
+      if (clean) sideCanonical[clean.toLowerCase()] = clean;
+    });
+
+    var groupings = Array.isArray(order && order.sisiGroupings) ? order.sisiGroupings : [];
+    var groupedUsed = {};
+    var slots = [];
+    var usedKeys = {};
+
+    groupings.forEach(function (grp, idx) {
+      var members = [];
+      var seenMember = {};
+      (Array.isArray(grp && grp.sisi) ? grp.sisi : []).forEach(function (s) {
+        var lower = String(s || '').trim().toLowerCase();
+        var canon = sideCanonical[lower];
+        if (canon && !seenMember[lower]) {
+          seenMember[lower] = true;
+          members.push(canon);
+          groupedUsed[lower] = true;
+        }
+      });
+      if (!members.length) return;
+
+      var baseLabel = members.join(' + ');
+      var key = baseLabel;
+      if (usedKeys[key]) {
+        key = baseLabel + ' (' + (grp.namaGrouping || 'Grup ' + (idx + 1)) + ')';
+      }
+      usedKeys[key] = true;
+      slots.push({
+        key: key,
+        label: baseLabel,
+        isGroup: members.length > 1,
+        namaGrouping: String(grp.namaGrouping || '').trim(),
+        sides: members
+      });
+    });
+
+    orderSides.forEach(function (side) {
+      var clean = String(side || '').trim();
+      if (!clean) return;
+      if (!groupedUsed[clean.toLowerCase()]) {
+        var key = clean;
+        if (usedKeys[key]) {
+          key = clean + ' (Sisi)';
+        }
+        usedKeys[key] = true;
+        slots.push({
+          key: key,
+          label: clean,
+          isGroup: false,
+          namaGrouping: '',
+          sides: [clean]
+        });
+      }
+    });
+
+    return slots;
+  }
+
+  function expandItemToSideTotals(item, multiplier) {
+    var result = {};
+    if (!item || typeof item !== 'object') return result;
+    var mult = Number(multiplier);
+    if (!isFinite(mult) || mult <= 0) return result;
+
+    var sq =
+      item.sisiQuantities && typeof item.sisiQuantities === 'object' ? item.sisiQuantities : {};
+    var slotMap = item.sisiSlotMap && typeof item.sisiSlotMap === 'object' ? item.sisiSlotMap : {};
+
+    Object.keys(sq).forEach(function (slotKey) {
+      var rawQty = Number(sq[slotKey]) || 0;
+      if (rawQty <= 0) return;
+
+      var memberSides =
+        Array.isArray(slotMap[slotKey]) && slotMap[slotKey].length ? slotMap[slotKey] : [slotKey];
+      var totalForSlot = rawQty * mult;
+      var perSide = totalForSlot / memberSides.length;
+
+      memberSides.forEach(function (sideName) {
+        var cleanSide = String(sideName || '').trim();
+        if (!cleanSide) return;
+        result[cleanSide] = roundQty((result[cleanSide] || 0) + perSide);
+      });
+    });
+
+    return result;
+  }
+
   function validateAndNormalizePayload(payload) {
     var namaSablon = (payload.namaSablon || '').trim();
     if (!namaSablon) {
@@ -133,12 +231,26 @@
         );
       }
 
+      var rawSlotMap =
+        item.sisiSlotMap && typeof item.sisiSlotMap === 'object' ? item.sisiSlotMap : {};
+      var cleanSlotMap = {};
+      Object.keys(cleanQty).forEach(function (slotKey) {
+        if (Array.isArray(rawSlotMap[slotKey]) && rawSlotMap[slotKey].length) {
+          cleanSlotMap[slotKey] = rawSlotMap[slotKey]
+            .map(function (s) {
+              return String(s || '').trim();
+            })
+            .filter(Boolean);
+        }
+      });
+
       cleanItems.push({
         pesananId: pid,
         namaPemesan: String(item.namaPemesan || '').trim(),
         namaProduk: String(item.namaProduk || '').trim(),
         jumlahProduk: Number(item.jumlahProduk) || 0,
-        sisiQuantities: cleanQty
+        sisiQuantities: cleanQty,
+        sisiSlotMap: cleanSlotMap
       });
     }
 
@@ -199,11 +311,11 @@
         if (!totalsByOrder[pid]) {
           totalsByOrder[pid] = {};
         }
-        var sq = item.sisiQuantities && typeof item.sisiQuantities === 'object' ? item.sisiQuantities : {};
-        Object.keys(sq).forEach(function (sisi) {
-          var q = Number(sq[sisi]) || 0;
+        var expanded = expandItemToSideTotals(item, checkedMult);
+        Object.keys(expanded).forEach(function (sisi) {
+          var q = Number(expanded[sisi]) || 0;
           if (q > 0) {
-            totalsByOrder[pid][sisi] = (totalsByOrder[pid][sisi] || 0) + (q * checkedMult);
+            totalsByOrder[pid][sisi] = roundQty((totalsByOrder[pid][sisi] || 0) + q);
           }
         });
       });
@@ -265,6 +377,9 @@
   }
 
   global.ZcpSablonService = {
+    roundQty: roundQty,
+    buildOrderSablonSlots: buildOrderSablonSlots,
+    expandItemToSideTotals: expandItemToSideTotals,
     extractPesananIds: extractPesananIds,
     syncPesananProgress: syncPesananProgress,
 

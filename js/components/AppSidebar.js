@@ -16,12 +16,14 @@
       sablonCount: { type: Number, default: 0 },
       produkCount: { type: Number, default: 0 },
       expedisiCount: { type: Number, default: 0 },
+      asalPesananCount: { type: Number, default: 0 },
+      boronganBadgeCount: { type: Number, default: 0 },
       usersCount: { type: Number, default: 0 }
     },
     emits: ['navigate', 'close', 'logout'],
     computed: {
       masterTotal: function () {
-        return this.produkCount + this.expedisiCount;
+        return this.produkCount + this.expedisiCount + this.asalPesananCount;
       },
       avatarInitial: function () {
         var source = this.userName || this.userEmail;
@@ -80,6 +82,12 @@
             label: 'Manajemen Sablon',
             icon: 'print',
             badge: String(this.sablonCount)
+          },
+          {
+            key: 'borongan',
+            label: 'Borongan',
+            icon: 'payments',
+            badge: this.boronganBadgeCount > 0 ? String(this.boronganBadgeCount) : ''
           },
           {
             key: 'master-data',

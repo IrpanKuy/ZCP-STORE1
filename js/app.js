@@ -9,12 +9,11 @@
     pesanan: { title: 'Pesanan', breadcrumb: 'Pesanan' },
     operasional: { title: 'Operasional', breadcrumb: 'Operasional' },
     sablon: { title: 'Manajemen Sablon', breadcrumb: 'Manajemen Sablon' },
+    borongan: { title: 'Borongan', breadcrumb: 'Borongan' },
     'akun-karyawan': { title: 'Akun Karyawan', breadcrumb: 'Akun Karyawan' },
     'log-aktivitas': { title: 'Log Aktivitas', breadcrumb: 'Log Aktivitas' },
     pengaturan: { title: 'Pengaturan', breadcrumb: 'Pengaturan' }
   };
-
-  var toastSeq = 0;
 
   function detectInitialTheme() {
     try {
@@ -33,8 +32,6 @@
 
   var app = Vue.createApp({
     components: {
-      ToastContainer: global.ZcpComponents.ToastContainer,
-      ConfirmModal: global.ZcpComponents.ConfirmModal,
       LoginView: global.ZcpComponents.LoginView,
       AppSidebar: global.ZcpComponents.AppSidebar,
       AppNavbar: global.ZcpComponents.AppNavbar,
@@ -42,6 +39,7 @@
       PesananView: global.ZcpComponents.PesananView,
       OperasionalView: global.ZcpComponents.OperasionalView,
       SablonView: global.ZcpComponents.SablonView,
+      BoronganView: global.ZcpComponents.BoronganView,
       MasterDataView: global.ZcpComponents.MasterDataView,
       AkunKaryawanView: global.ZcpComponents.AkunKaryawanView,
       ActivityLogView: global.ZcpComponents.ActivityLogView,
@@ -65,26 +63,20 @@
         },
         theme: detectInitialTheme(),
         sidebarOpen: false,
-        toasts: [],
-        confirmState: {
-          visible: false,
-          title: 'Konfirmasi',
-          message: '',
-          confirmText: 'Ya, Lanjutkan',
-          variant: 'danger',
-          loading: false,
-          onConfirm: null
-        },
         produkList: [],
         expedisiList: [],
+        asalPesananList: [],
         pesananList: [],
         sablonList: [],
+        boronganRequestsList: [],
         usersList: [],
         logsList: [],
         loadingProduk: false,
         loadingExpedisi: false,
+        loadingAsalPesanan: false,
         loadingPesanan: false,
         loadingSablon: false,
+        loadingBoronganRequests: false,
         loadingUsers: false,
         loadingLogs: false,
         loadingMoreLogs: false,
@@ -98,7 +90,8 @@
         hasMoreSablon: false,
         unsubAuth: null,
         unsubPesanan: null,
-        unsubSablon: null
+        unsubSablon: null,
+        unsubBoronganRequests: null
       };
     },
     computed: {
@@ -113,6 +106,21 @@
       activeSablonCount: function () {
         return this.sablonList.filter(function (s) {
           return !s.statusSelesai;
+        }).length;
+      },
+      staffList: function () {
+        return this.usersList.filter(function (u) {
+          return u.active !== false && (u.role === 'admin' || u.role === 'karyawan');
+        });
+      },
+      pendingBoronganCount: function () {
+        var uid = this.user && this.user.uid;
+        var isSuper = this.user && this.user.role === 'superadmin';
+        if (!uid) return 0;
+        return this.boronganRequestsList.filter(function (r) {
+          if (r.status !== 'pending') return false;
+          if (isSuper) return true;
+          return Array.isArray(r.involvedUids) && r.involvedUids.indexOf(uid) !== -1;
         }).length;
       }
     },
@@ -144,54 +152,13 @@
         this.theme = this.theme === 'dark' ? 'light' : 'dark';
       },
       addToast: function (payload) {
-        var id = ++toastSeq;
-        var message = (payload && payload.message) || String(payload || '');
-        var type = (payload && payload.type) || 'info';
-        var self = this;
-        this.toasts.push({ id: id, message: message, type: type });
-        setTimeout(function () {
-          self.dismissToast(id);
-        }, 4000);
-      },
-      dismissToast: function (id) {
-        this.toasts = this.toasts.filter(function (t) {
-          return t.id !== id;
-        });
+        if (global.ZcpAlert && typeof global.ZcpAlert.toast === 'function') {
+          global.ZcpAlert.toast(payload);
+        }
       },
       openConfirm: function (options) {
-        this.confirmState = {
-          visible: true,
-          title: options.title || 'Konfirmasi',
-          message: options.message || 'Apakah Anda yakin?',
-          confirmText: options.confirmText || 'Ya, Lanjutkan',
-          variant: options.variant || 'danger',
-          loading: false,
-          onConfirm: options.onConfirm || null
-        };
-      },
-      closeConfirm: function () {
-        if (this.confirmState.loading) return;
-        this.confirmState.visible = false;
-        this.confirmState.onConfirm = null;
-      },
-      executeConfirm: async function () {
-        var handler = this.confirmState.onConfirm;
-        if (typeof handler !== 'function') {
-          this.confirmState.visible = false;
-          return;
-        }
-        this.confirmState.loading = true;
-        try {
-          await handler();
-          this.confirmState.visible = false;
-          this.confirmState.onConfirm = null;
-        } catch (err) {
-          this.addToast({
-            type: 'error',
-            message: (err && err.message) || 'Terjadi kesalahan saat memproses aksi.'
-          });
-        } finally {
-          this.confirmState.loading = false;
+        if (global.ZcpAlert && typeof global.ZcpAlert.confirm === 'function') {
+          global.ZcpAlert.confirm(options);
         }
       },
       navigatePage: function (pageKey) {
@@ -245,6 +212,7 @@
         if (info && info.touchedMaster) {
           this.loadMasterProduk();
           this.loadMasterExpedisi();
+          this.loadMasterAsalPesanan();
         }
       },
       initAuthListener: function () {
@@ -318,6 +286,8 @@
         // Ambil 1x via .get() untuk data konfigurasi & master yang jarang berubah
         this.loadMasterProduk();
         this.loadMasterExpedisi();
+        this.loadMasterAsalPesanan();
+        this.loadUsers(false);
         global.ZcpSettingsService.fetchSettings()
           .then(function (cfg) {
             self.defaultPageSize = cfg.defaultPageSize;
@@ -338,6 +308,7 @@
 
         this.subscribePesananList();
         this.subscribeSablonList();
+        this.subscribeBoronganRequestsList();
       },
       loadMasterProduk: async function () {
         this.loadingProduk = true;
@@ -364,6 +335,39 @@
         } finally {
           this.loadingExpedisi = false;
         }
+      },
+      loadMasterAsalPesanan: async function () {
+        this.loadingAsalPesanan = true;
+        try {
+          this.asalPesananList = await global.ZcpMasterService.fetchAsalPesanan();
+        } catch (err) {
+          this.addToast({
+            type: 'error',
+            message:
+              'Gagal memuat Master Asal Pesanan: ' + ((err && err.message) || 'Akses ditolak')
+          });
+        } finally {
+          this.loadingAsalPesanan = false;
+        }
+      },
+      subscribeBoronganRequestsList: function () {
+        if (typeof this.unsubBoronganRequests === 'function') {
+          this.unsubBoronganRequests();
+          this.unsubBoronganRequests = null;
+        }
+        if (!this.user || !global.ZcpBoronganService) return;
+        var self = this;
+        this.loadingBoronganRequests = true;
+        this.unsubBoronganRequests = global.ZcpBoronganService.subscribeRequests(
+          this.user,
+          function (list) {
+            self.boronganRequestsList = list;
+            self.loadingBoronganRequests = false;
+          },
+          function () {
+            self.loadingBoronganRequests = false;
+          }
+        );
       },
       subscribePesananList: function () {
         if (typeof this.unsubPesanan === 'function') {
@@ -420,7 +424,7 @@
         this.subscribeSablonList();
       },
       loadUsers: async function (force) {
-        if (!this.user || this.user.role !== 'superadmin') return;
+        if (!this.user) return;
         if (this.loadingUsers && !force) return;
         this.loadingUsers = true;
         try {
@@ -478,10 +482,16 @@
           this.unsubSablon();
           this.unsubSablon = null;
         }
+        if (typeof this.unsubBoronganRequests === 'function') {
+          this.unsubBoronganRequests();
+          this.unsubBoronganRequests = null;
+        }
         this.produkList = [];
         this.expedisiList = [];
+        this.asalPesananList = [];
         this.pesananList = [];
         this.sablonList = [];
+        this.boronganRequestsList = [];
         this.usersList = [];
         this.logsList = [];
         this.usersLoaded = false;
@@ -494,8 +504,10 @@
         this.sablonLimit = 150;
         this.loadingProduk = false;
         this.loadingExpedisi = false;
+        this.loadingAsalPesanan = false;
         this.loadingPesanan = false;
         this.loadingSablon = false;
+        this.loadingBoronganRequests = false;
         this.loadingUsers = false;
         this.loadingLogs = false;
         this.loadingMoreLogs = false;

@@ -12,7 +12,8 @@
       searchText: '',
       dropdownOpen: false,
       selectedPesananId: '',
-      sisiInputs: {}
+      sisiInputs: {},
+      legacyExtraSlots: []
     };
   }
 
@@ -101,7 +102,8 @@
         });
       },
       /**
-       * Total qty yang sudah selesai dari seluruh sablon (dipakai untuk hitung sisa saat input).
+       * Total qty per sisi aktual yang sudah selesai dari seluruh sablon
+       * (memperhitungkan pembagian rata dari grouping sisi).
        */
       completedQtyMap: function () {
         var totals = {};
@@ -109,7 +111,9 @@
           var s = this.sablonList[i];
           var checkedCount = Array.isArray(s.perulanganChecks)
             ? s.perulanganChecks.filter(Boolean).length
-            : (s.statusSelesai ? Math.max(1, parseInt(s.jumlahPerulangan, 10) || 1) : 0);
+            : s.statusSelesai
+            ? Math.max(1, parseInt(s.jumlahPerulangan, 10) || 1)
+            : 0;
           if (checkedCount <= 0) continue;
           var items = Array.isArray(s.pesananItems) ? s.pesananItems : [];
           for (var j = 0; j < items.length; j++) {
@@ -117,9 +121,11 @@
             var pid = item && item.pesananId;
             if (!pid) continue;
             if (!totals[pid]) totals[pid] = {};
-            var sq = item.sisiQuantities || {};
-            Object.keys(sq).forEach(function (side) {
-              totals[pid][side] = (totals[pid][side] || 0) + ((Number(sq[side]) || 0) * checkedCount);
+            var expanded = global.ZcpSablonService.expandItemToSideTotals(item, checkedCount);
+            Object.keys(expanded).forEach(function (side) {
+              totals[pid][side] = global.ZcpSablonService.roundQty(
+                (totals[pid][side] || 0) + (Number(expanded[side]) || 0)
+              );
             });
           }
         }
@@ -182,6 +188,26 @@
         if (!Array.isArray(sablon.perulanganChecks)) return 0;
         return sablon.perulanganChecks.filter(Boolean).length;
       },
+      getGroupMembersCount: function (item, slotKey) {
+        var arr = item && item.sisiSlotMap && item.sisiSlotMap[slotKey];
+        return Array.isArray(arr) ? arr.length : 1;
+      },
+      getOrderSlots: function (order, block) {
+        var slots = global.ZcpSablonService.buildOrderSablonSlots(order);
+        var seen = {};
+        slots.forEach(function (sl) {
+          seen[sl.key] = true;
+        });
+        if (block && Array.isArray(block.legacyExtraSlots)) {
+          block.legacyExtraSlots.forEach(function (sl) {
+            if (!seen[sl.key]) {
+              seen[sl.key] = true;
+              slots.push(sl);
+            }
+          });
+        }
+        return slots;
+      },
       revokeAllStagedPreviews: function () {
         var staged = this.form.stagedFiles || [];
         for (var i = 0; i < staged.length; i++) {
@@ -223,19 +249,50 @@
         var self = this;
 
         var blocks = (Array.isArray(sablon.pesananItems) ? sablon.pesananItems : []).map(function (item) {
-          var order = self.pesananMap[item.pesananId];
-          var sisiMap = {};
-          var orderSisi = order && Array.isArray(order.namaSisi)
-            ? order.namaSisi
-            : Object.keys(item.sisiQuantities || {});
+          var order = self.pesananMap[item.pesananId] || {
+            id: item.pesananId,
+            namaPemesan: item.namaPemesan,
+            namaProduk: item.namaProduk,
+            jumlahProduk: item.jumlahProduk || 0,
+            namaSisi: Object.keys(item.sisiQuantities || {}),
+            sisiGroupings: []
+          };
+          var slots = global.ZcpSablonService.buildOrderSablonSlots(order);
+          var slotKeyMap = {};
+          slots.forEach(function (sl) {
+            slotKeyMap[sl.key] = true;
+          });
 
-          orderSisi.forEach(function (side) {
-            sisiMap[side] = Number(item.sisiQuantities && item.sisiQuantities[side]) || 0;
+          var sisiMap = {};
+          slots.forEach(function (sl) {
+            sisiMap[sl.key] = Number(item.sisiQuantities && item.sisiQuantities[sl.key]) || 0;
+          });
+
+          // Pertahankan slot historis jika ada perubahan grouping atau sablon lama
+          var legacyExtraSlots = [];
+          var oldSq = item.sisiQuantities || {};
+          var oldSlotMap = item.sisiSlotMap || {};
+          Object.keys(oldSq).forEach(function (oldKey) {
+            if (!slotKeyMap[oldKey] && (Number(oldSq[oldKey]) || 0) > 0) {
+              var members =
+                Array.isArray(oldSlotMap[oldKey]) && oldSlotMap[oldKey].length
+                  ? oldSlotMap[oldKey]
+                  : [oldKey];
+              legacyExtraSlots.push({
+                key: oldKey,
+                label: oldKey,
+                isGroup: members.length > 1,
+                namaGrouping: 'Tersimpan',
+                sides: members
+              });
+              sisiMap[oldKey] = Number(oldSq[oldKey]) || 0;
+            }
           });
 
           var block = makeOrderBlock();
           block.selectedPesananId = item.pesananId || '';
           block.sisiInputs = sisiMap;
+          block.legacyExtraSlots = legacyExtraSlots;
           block.searchText = '';
           block.dropdownOpen = false;
           return block;
@@ -289,6 +346,7 @@
           return (
             (order.namaPemesan || '').toLowerCase().indexOf(q) !== -1 ||
             (order.namaProduk || '').toLowerCase().indexOf(q) !== -1 ||
+            (order.namaTemplateSisi || '').toLowerCase().indexOf(q) !== -1 ||
             (order.namaExpedisi || '').toLowerCase().indexOf(q) !== -1
           );
         });
@@ -304,17 +362,19 @@
         block.selectedPesananId = order.id;
         block.searchText = '';
         block.dropdownOpen = false;
+        block.legacyExtraSlots = [];
 
         var sisiInputs = {};
-        var sisiList = Array.isArray(order.namaSisi) ? order.namaSisi : [];
-        for (var i = 0; i < sisiList.length; i++) {
-          sisiInputs[sisiList[i]] = 0;
+        var slots = global.ZcpSablonService.buildOrderSablonSlots(order);
+        for (var i = 0; i < slots.length; i++) {
+          sisiInputs[slots[i].key] = 0;
         }
         block.sisiInputs = sisiInputs;
       },
       clearOrderBlockSelection: function (block) {
         block.selectedPesananId = '';
         block.sisiInputs = {};
+        block.legacyExtraSlots = [];
         block.searchText = '';
         block.dropdownOpen = true;
       },
@@ -323,7 +383,6 @@
         if (this.pesananMap[block.selectedPesananId]) {
           return this.pesananMap[block.selectedPesananId];
         }
-        // Fallback snapshot jika pesanan sudah dihapus namun sedang edit sablon lama
         if (this.editingSablon && Array.isArray(this.editingSablon.pesananItems)) {
           var found = this.editingSablon.pesananItems.find(function (p) {
             return p.pesananId === block.selectedPesananId;
@@ -335,6 +394,7 @@
               namaProduk: found.namaProduk,
               jumlahProduk: found.jumlahProduk || 0,
               namaSisi: Object.keys(found.sisiQuantities || {}),
+              sisiGroupings: [],
               deletedFromMaster: true
             };
           }
@@ -342,12 +402,12 @@
         return null;
       },
       /**
-       * Menghitung berapa pcs sisi yang sudah selesai dari sablon LAIN
-       * (dikurangi kontribusi sablon ini sendiri jika sedang edit dan statusnya sudah selesai).
+       * Menghitung total qty yang sudah selesai dari sablon LAIN untuk sisi aktual tertentu.
        */
-      getOtherCompletedForSide: function (pesananId, sisi) {
+      getOtherCompletedForSide: function (pesananId, sideName) {
         var totalCompleted =
-          (this.completedQtyMap[pesananId] && Number(this.completedQtyMap[pesananId][sisi])) || 0;
+          (this.completedQtyMap[pesananId] && Number(this.completedQtyMap[pesananId][sideName])) ||
+          0;
         if (this.editingSablon) {
           var prevChecked = this.checkedCount(this.editingSablon);
           if (prevChecked > 0) {
@@ -357,25 +417,48 @@
             var prevItem = prevItems.find(function (it) {
               return it.pesananId === pesananId;
             });
-            if (prevItem && prevItem.sisiQuantities) {
-              totalCompleted -= (Number(prevItem.sisiQuantities[sisi]) || 0) * prevChecked;
+            if (prevItem) {
+              var expandedSelf = global.ZcpSablonService.expandItemToSideTotals(
+                prevItem,
+                prevChecked
+              );
+              totalCompleted -= Number(expandedSelf[sideName]) || 0;
             }
           }
         }
-        return Math.max(0, totalCompleted);
+        return Math.max(0, global.ZcpSablonService.roundQty(totalCompleted));
+      },
+      getOtherCompletedForSlot: function (orderId, slot) {
+        var self = this;
+        var sum = 0;
+        (slot.sides || []).forEach(function (sideName) {
+          sum += self.getOtherCompletedForSide(orderId, sideName);
+        });
+        return global.ZcpSablonService.roundQty(sum);
       },
       getFormMultiplier: function () {
         return Math.max(1, parseInt(this.form.jumlahPerulangan, 10) || 1);
       },
-      getSideEffectiveTotal: function (block, sisi) {
-        var inputVal = Math.max(0, parseInt(block.sisiInputs[sisi], 10) || 0);
+      getSlotEffectiveTotal: function (block, slotKey) {
+        var inputVal = Math.max(0, parseInt(block.sisiInputs[slotKey], 10) || 0);
         return inputVal * this.getFormMultiplier();
       },
-      getSideOverAmount: function (block, order, sisi) {
-        if (!order || !order.jumlahProduk) return 0;
-        var otherDone = this.getOtherCompletedForSide(order.id, sisi);
-        var effectiveQty = this.getSideEffectiveTotal(block, sisi);
-        return Math.max(0, otherDone + effectiveQty - order.jumlahProduk);
+      getSlotPerSideTotal: function (block, slot) {
+        var eff = this.getSlotEffectiveTotal(block, slot.key);
+        var countSides = Math.max(1, (slot.sides || []).length);
+        return global.ZcpSablonService.roundQty(eff / countSides);
+      },
+      getSlotTargetTotal: function (order, slot) {
+        var base = Number(order && order.jumlahProduk) || 0;
+        var countSides = Math.max(1, (slot.sides || []).length);
+        return base * countSides;
+      },
+      getSlotOverAmount: function (block, order, slot) {
+        var targetTotal = this.getSlotTargetTotal(order, slot);
+        if (!targetTotal) return 0;
+        var otherDone = this.getOtherCompletedForSlot(order.id, slot);
+        var eff = this.getSlotEffectiveTotal(block, slot.key);
+        return Math.max(0, global.ZcpSablonService.roundQty(otherDone + eff - targetTotal));
       },
       triggerFilePicker: function () {
         if (this.saving) return;
@@ -461,13 +544,15 @@
             this.formError = 'Pesanan pada baris ke-' + (i + 1) + ' belum dipilih.';
             return;
           }
+          var slots = this.getOrderSlots(order, block);
           var sisiQuantities = {};
+          var sisiSlotMap = {};
           var sumSide = 0;
-          var sideNames = Array.isArray(order.namaSisi) ? order.namaSisi : Object.keys(block.sisiInputs || {});
-          for (var s = 0; s < sideNames.length; s++) {
-            var side = sideNames[s];
-            var q = Math.max(0, parseInt(block.sisiInputs[side], 10) || 0);
-            sisiQuantities[side] = q;
+          for (var s = 0; s < slots.length; s++) {
+            var sl = slots[s];
+            var q = Math.max(0, parseInt(block.sisiInputs[sl.key], 10) || 0);
+            sisiQuantities[sl.key] = q;
+            sisiSlotMap[sl.key] = sl.sides.slice();
             sumSide += q;
           }
           if (sumSide <= 0) {
@@ -480,7 +565,8 @@
             namaPemesan: order.namaPemesan,
             namaProduk: order.namaProduk,
             jumlahProduk: order.jumlahProduk || 0,
-            sisiQuantities: sisiQuantities
+            sisiQuantities: sisiQuantities,
+            sisiSlotMap: sisiSlotMap
           });
         }
 
@@ -759,7 +845,7 @@
             </div>
             <div class="kpi-divider"></div>
             <div class="kpi-footer">
-              <span style="color: var(--accent-info); font-weight: 600;">Border biru</span> • otomatis menambah progres sisi (jumlah × perulangan)
+              <span style="color: var(--accent-info); font-weight: 600;">Border biru</span> • sisi ter-grouping otomatis dibagi rata
             </div>
           </div>
         </div>
@@ -833,7 +919,7 @@
             </button>
           </div>
 
-          <!-- Daftar Sablon: Setiap grup (1 Induk + N Anak Row) dibungkus 1 border menyatu -->
+          <!-- Daftar Sablon -->
           <div v-else class="sablon-list">
             <div
               v-for="sablon in paginatedList"
@@ -857,7 +943,7 @@
                     </div>
                   </div>
 
-                  <!-- Daftar Pesanan Terhubung & Jumlah per Sisi -->
+                  <!-- Daftar Pesanan Terhubung & Jumlah per Sisi / Grouping -->
                   <div class="sablon-linked-orders">
                     <div
                       v-for="(item, iIdx) in sablon.pesananItems"
@@ -878,6 +964,13 @@
                           {{ qty }} × {{ sablon.jumlahPerulangan }} = {{ qty * sablon.jumlahPerulangan }}
                         </strong>
                         <strong v-else>{{ qty }}</strong>
+                        <span
+                          v-if="getGroupMembersCount(item, sideName) > 1"
+                          class="form-hint"
+                          style="font-size: 11px;"
+                        >
+                          ({{ Math.round(((qty * sablon.jumlahPerulangan) / getGroupMembersCount(item, sideName)) * 100) / 100 }}/sisi)
+                        </span>
                       </span>
                     </div>
                   </div>
@@ -951,7 +1044,7 @@
                 </div>
               </div>
 
-              <!-- Anak Row (Jumlah perulangan = jumlah child row menyatu di dalam border) -->
+              <!-- Anak Row -->
               <div class="sablon-child-list">
                 <label
                   v-for="(isChecked, cIdx) in sablon.perulanganChecks"
@@ -1124,7 +1217,7 @@
                         </button>
                       </div>
 
-                      <!-- Jika belum memilih pesanan: Searchable Dropdown -->
+                      <!-- Searchable Dropdown -->
                       <div v-if="!block.selectedPesananId" class="searchable-select">
                         <div class="search-box" style="width: 100%; min-width: 0;">
                           <span class="material-symbols-rounded input-icon">search</span>
@@ -1132,7 +1225,7 @@
                             v-model="block.searchText"
                             type="text"
                             class="form-control"
-                            placeholder="Cari nama pemesan, produk, atau expedisi..."
+                            placeholder="Cari nama pemesan, produk, atau template..."
                             :disabled="saving"
                             @focus="openBlockDropdown(block)"
                           />
@@ -1152,6 +1245,9 @@
                           >
                             <div>
                               <strong>{{ order.namaPemesan }}</strong> — {{ order.namaProduk }}
+                              <span v-if="order.namaTemplateSisi" class="form-hint">
+                                [{{ order.namaTemplateSisi }}]
+                              </span>
                               <span class="form-hint">({{ order.jumlahProduk }} pcs • {{ order.namaSisi.join(', ') }})</span>
                             </div>
                             <span
@@ -1171,14 +1267,17 @@
                         </div>
                       </div>
 
-                      <!-- Jika pesanan sudah dipilih: Tampilkan ringkasan + input jumlah tiap sisi -->
+                      <!-- Input Qty per Slot (Sisi Individual maupun Grouping Gabungan) -->
                       <div v-else>
                         <div class="selected-order-banner">
                           <div>
                             <strong>{{ getOrderForBlock(block).namaPemesan }}</strong>
                             <span> — {{ getOrderForBlock(block).namaProduk }}</span>
-                            <span class="form-hint">
-                              (Target: {{ getOrderForBlock(block).jumlahProduk }} pcs)
+                            <span v-if="getOrderForBlock(block).namaTemplateSisi" class="template-badge" style="margin-left: 6px;">
+                              {{ getOrderForBlock(block).namaTemplateSisi }}
+                            </span>
+                            <span class="form-hint" style="margin-left: 4px;">
+                              (Target: {{ getOrderForBlock(block).jumlahProduk }} pcs/sisi)
                             </span>
                           </div>
                           <button
@@ -1193,15 +1292,23 @@
 
                         <div class="sisi-qty-grid">
                           <div
-                            v-for="side in getOrderForBlock(block).namaSisi"
-                            :key="side"
+                            v-for="slot in getOrderSlots(getOrderForBlock(block), block)"
+                            :key="slot.key"
                             class="sisi-qty-card"
+                            :class="{ 'is-grouped-slot': slot.isGroup }"
                           >
-                            <label class="form-label" style="margin-bottom: 4px;">
-                              Sisi {{ side }} <span class="form-hint" style="font-weight: 500;">(per 1x print)</span>
-                            </label>
+                            <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px; flex-wrap: wrap; margin-bottom: 4px;">
+                              <label class="form-label" style="margin-bottom: 0;">
+                                {{ slot.label }}
+                                <span class="form-hint" style="font-weight: 500;">(per 1x print)</span>
+                              </label>
+                              <span v-if="slot.isGroup" class="grouping-chip">
+                                <span class="material-symbols-rounded" style="font-size: 13px;">workspaces</span>
+                                <span>{{ slot.namaGrouping || 'Grouping' }} ({{ slot.sides.length }} sisi)</span>
+                              </span>
+                            </div>
                             <input
-                              v-model.number="block.sisiInputs[side]"
+                              v-model.number="block.sisiInputs[slot.key]"
                               type="number"
                               min="0"
                               step="1"
@@ -1209,23 +1316,30 @@
                               :disabled="saving"
                             />
                             <div
-                              v-if="(parseInt(block.sisiInputs[side], 10) || 0) > 0"
+                              v-if="(parseInt(block.sisiInputs[slot.key], 10) || 0) > 0"
                               class="sisi-total-preview"
                             >
-                              Jumlah setelah selesai sisi {{ side }} jadi {{ getSideEffectiveTotal(block, side) }} pcs
+                              <template v-if="slot.isGroup">
+                                Total selesai: {{ getSlotEffectiveTotal(block, slot.key) }} pcs
+                                → Dibagi rata ke {{ slot.sides.length }} sisi =
+                                <strong>{{ getSlotPerSideTotal(block, slot) }} pcs/sisi</strong>
+                              </template>
+                              <template v-else>
+                                Jumlah setelah selesai sisi {{ slot.label }} jadi {{ getSlotEffectiveTotal(block, slot.key) }} pcs
+                              </template>
                               <span v-if="getFormMultiplier() > 1">
-                                ({{ parseInt(block.sisiInputs[side], 10) || 0 }} × {{ getFormMultiplier() }} print)
+                                ({{ parseInt(block.sisiInputs[slot.key], 10) || 0 }} × {{ getFormMultiplier() }} print)
                               </span>
                             </div>
                             <div class="form-hint" style="margin-top: 4px;">
-                              Sudah di-print: {{ getOtherCompletedForSide(getOrderForBlock(block).id, side) }}/{{ getOrderForBlock(block).jumlahProduk }}
-                              • Sisa: {{ Math.max(0, getOrderForBlock(block).jumlahProduk - getOtherCompletedForSide(getOrderForBlock(block).id, side)) }}
+                              Sudah di-print: {{ getOtherCompletedForSlot(getOrderForBlock(block).id, slot) }}/{{ getSlotTargetTotal(getOrderForBlock(block), slot) }}
+                              • Sisa: {{ Math.max(0, getSlotTargetTotal(getOrderForBlock(block), slot) - getOtherCompletedForSlot(getOrderForBlock(block).id, slot)) }}
                             </div>
                             <div
-                              v-if="getSideOverAmount(block, getOrderForBlock(block), side) > 0"
+                              v-if="getSlotOverAmount(block, getOrderForBlock(block), slot) > 0"
                               class="over-warn"
                             >
-                              Melebihi target (+{{ getSideOverAmount(block, getOrderForBlock(block), side) }} pcs)
+                              Melebihi target (+{{ getSlotOverAmount(block, getOrderForBlock(block), slot) }} pcs)
                             </div>
                           </div>
                         </div>
