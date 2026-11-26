@@ -9,6 +9,7 @@
     pesanan: { title: 'Pesanan', breadcrumb: 'Pesanan' },
     operasional: { title: 'Operasional', breadcrumb: 'Operasional' },
     sablon: { title: 'Manajemen Sablon', breadcrumb: 'Manajemen Sablon' },
+    'sablon-form': { title: 'Buat Data Sablon', breadcrumb: 'Manajemen Sablon / Buat Sablon' },
     borongan: { title: 'Borongan', breadcrumb: 'Borongan' },
     'akun-karyawan': { title: 'Akun Karyawan', breadcrumb: 'Akun Karyawan' },
     'log-aktivitas': { title: 'Log Aktivitas', breadcrumb: 'Log Aktivitas' },
@@ -39,6 +40,7 @@
       PesananView: global.ZcpComponents.PesananView,
       OperasionalView: global.ZcpComponents.OperasionalView,
       SablonView: global.ZcpComponents.SablonView,
+      SablonFormView: global.ZcpComponents.SablonFormView,
       BoronganView: global.ZcpComponents.BoronganView,
       MasterDataView: global.ZcpComponents.MasterDataView,
       AkunKaryawanView: global.ZcpComponents.AkunKaryawanView,
@@ -91,12 +93,22 @@
         unsubAuth: null,
         unsubPesanan: null,
         unsubSablon: null,
-        unsubBoronganRequests: null
+        unsubBoronganRequests: null,
+        sablonFormState: global.ZcpSablonQueueService.formState,
+        sablonAiQueue: global.ZcpSablonQueueService.aiQueue
       };
     },
     computed: {
       activePageMeta: function () {
+        if (this.currentPage === 'sablon-form' && this.sablonFormState.mode === 'edit') {
+          return { title: 'Edit Data Sablon', breadcrumb: 'Manajemen Sablon / Edit Sablon' };
+        }
         return PAGE_TITLES[this.currentPage] || PAGE_TITLES['master-data'];
+      },
+      hasUnsavedSablonDrafts: function () {
+        return Boolean(
+          global.ZcpSablonQueueService && global.ZcpSablonQueueService.hasUnsavedCreateDrafts()
+        );
       },
       activePesananCount: function () {
         return this.pesananList.filter(function (o) {
@@ -172,6 +184,13 @@
           });
           return;
         }
+        if (pageKey === 'sablon-form' && this.user && this.user.role === 'karyawan') {
+          this.addToast({
+            type: 'error',
+            message: 'Karyawan tidak memiliki akses untuk membuat atau mengedit data sablon.'
+          });
+          return;
+        }
         this.currentPage = pageKey;
 
         // Lazy load khusus menu administrasi agar kuota Read Firestore hemat saat awal login
@@ -214,6 +233,93 @@
           this.loadMasterExpedisi();
           this.loadMasterAsalPesanan();
         }
+      },
+      openCreateSablonPage: function () {
+        if (this.user && this.user.role === 'karyawan') return;
+        if (this.sablonFormState.mode === 'edit' && !this.sablonAiQueue.running) {
+          global.ZcpSablonQueueService.resetToCreate();
+        }
+        this.navigatePage('sablon-form');
+      },
+      openEditSablonPage: function (sablon) {
+        if ((this.user && this.user.role === 'karyawan') || !sablon) return;
+        if (this.sablonAiQueue.running) {
+          if (global.ZcpAlert) {
+            global.ZcpAlert.warning(
+              'Tunggu atau hentikan antrian Isi Sisi Otomatis terlebih dahulu sebelum mengedit data sablon.'
+            );
+          }
+          return;
+        }
+        var pMap = {};
+        for (var i = 0; i < this.pesananList.length; i++) {
+          pMap[this.pesananList[i].id] = this.pesananList[i];
+        }
+        global.ZcpSablonQueueService.loadForEdit(sablon, pMap);
+        this.navigatePage('sablon-form');
+      },
+      openSablonFormFromNavbar: function () {
+        this.navigatePage('sablon-form');
+      },
+      dismissSablonAiQueue: function () {
+        if (global.ZcpSablonQueueService) {
+          global.ZcpSablonQueueService.dismissNavbarStatus();
+        }
+      },
+      runSablonAiSingle: function (draftLocalId) {
+        var self = this;
+        global.ZcpSablonQueueService.runAiQueue([draftLocalId], {
+          queueMode: 'single',
+          getAiConfig: function () {
+            return self.aiConfig;
+          },
+          getDriveReady: function () {
+            return self.driveReady;
+          },
+          getPesananList: function () {
+            return self.pesananList;
+          },
+          getSablonList: function () {
+            return self.sablonList;
+          },
+          notify: function (payload) {
+            self.addToast(payload);
+          }
+        });
+      },
+      runSablonAiAll: function () {
+        var self = this;
+        var ids = this.sablonFormState.drafts
+          .filter(function (d) {
+            return global.ZcpSablonQueueService.draftHasSablonFiles(d);
+          })
+          .map(function (d) {
+            return d.localId;
+          });
+        global.ZcpSablonQueueService.runAiQueue(ids, {
+          queueMode: 'all',
+          getAiConfig: function () {
+            return self.aiConfig;
+          },
+          getDriveReady: function () {
+            return self.driveReady;
+          },
+          getPesananList: function () {
+            return self.pesananList;
+          },
+          getSablonList: function () {
+            return self.sablonList;
+          },
+          notify: function (payload) {
+            self.addToast(payload);
+          }
+        });
+      },
+      stopSablonAiQueue: function () {
+        global.ZcpSablonQueueService.stopAiQueue();
+      },
+      onSablonFormSaved: function () {
+        this.navigatePage('sablon');
       },
       initAuthListener: function () {
         if (!this.firebaseReady) {
@@ -485,6 +591,9 @@
         if (typeof this.unsubBoronganRequests === 'function') {
           this.unsubBoronganRequests();
           this.unsubBoronganRequests = null;
+        }
+        if (global.ZcpSablonQueueService) {
+          global.ZcpSablonQueueService.cleanupOnLogout();
         }
         this.produkList = [];
         this.expedisiList = [];

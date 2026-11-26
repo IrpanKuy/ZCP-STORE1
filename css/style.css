@@ -3941,3 +3941,388 @@ textarea {
   flex-wrap: wrap;
   gap: 6px;
 }
+
+.sablon-ai-bar {
+  margin-top: 10px;
+  padding: 11px 13px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  background: var(--accent-info-soft);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.sablon-ai-result-box {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  background: var(--bg-surface-2);
+}
+
+/* =========================================================
+   Full-Width Scrollable File Design Viewer
+   ========================================================= */
+.file-viewer-modal {
+  max-width: 960px;
+  width: calc(100% - 24px);
+  max-height: 92vh;
+  max-height: 92dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+.file-viewer-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px;
+  background: var(--bg-app);
+}
+
+.file-viewer-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.file-viewer-item {
+  position: relative;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+  background: var(--bg-surface);
+  overflow: hidden;
+  box-shadow: var(--shadow-card);
+}
+
+.file-viewer-img {
+  display: block;
+  width: 100%;
+  height: auto;
+  background: var(--bg-surface-2);
+}
+
+.file-viewer-pdf {
+  display: block;
+  width: 100%;
+  height: 75vh;
+  border: none;
+  background: #ffffff;
+}
+
+.file-viewer-download-btn {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 4;
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.78);
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: opacity 0.18s ease, transform 0.18s ease, background 0.18s ease;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.28);
+}
+
+.file-viewer-item:hover .file-viewer-download-btn,
+.file-viewer-download-btn:focus-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.file-viewer-download-btn:hover {
+  background: var(--accent-info);
+  color: #ffffff;
+}
+
+.file-viewer-caption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-surface-2);
+}
+
+.file-viewer-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (hover: none) {
+  .file-viewer-download-btn {
+    opacity: 0.92;
+    transform: translateY(0);
+  }
+}
+
+/* =========================================================
+   Navbar Top-Right AI Progress Pill & Multi-Sablon Form Page
+   ========================================================= */
+.navbar-ai-progress {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  max-width: 300px;
+  padding: 6px 11px;
+  border-radius: 12px;
+  border: 1px solid rgba(37, 99, 235, 0.35);
+  background: var(--accent-info-soft);
+  color: var(--text-primary);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.16s ease;
+}
+
+.navbar-ai-progress:hover {
+  border-color: var(--accent-info);
+  transform: translateY(-1px);
+}
+
+.navbar-ai-progress.is-done {
+  border-color: rgba(16, 185, 129, 0.4);
+  background: rgba(16, 185, 129, 0.12);
+}
+
+.navbar-ai-progress.is-error {
+  border-color: rgba(239, 68, 68, 0.45);
+  background: rgba(239, 68, 68, 0.12);
+}
+
+.navbar-ai-progress.is-retrying {
+  border-color: rgba(245, 158, 11, 0.45);
+  background: rgba(245, 158, 11, 0.14);
+}
+
+.navbar-ai-content {
+  min-width: 0;
+  flex: 1;
+}
+
+.navbar-ai-title {
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.navbar-ai-sub {
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 4px;
+}
+
+.navbar-ai-bar-track {
+  width: 100%;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.25);
+  overflow: hidden;
+}
+
+.navbar-ai-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent-info);
+  transition: width 0.25s ease;
+}
+
+.navbar-ai-progress.is-done .navbar-ai-bar-fill {
+  background: var(--accent-success);
+}
+
+.navbar-ai-progress.is-error .navbar-ai-bar-fill {
+  background: var(--accent-danger);
+}
+
+.navbar-ai-progress.is-retrying .navbar-ai-bar-fill {
+  background: var(--accent-warning);
+}
+
+.navbar-ai-dismiss {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.navbar-ai-dismiss:hover {
+  background: rgba(148, 163, 184, 0.2);
+  color: var(--text-primary);
+}
+
+.sablon-form-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.sablon-form-topbar {
+  padding: 16px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.sablon-form-topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.sablon-form-topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.sablon-queue-banner {
+  padding: 13px 16px;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(37, 99, 235, 0.35);
+  background: var(--accent-info-soft);
+}
+
+.sablon-queue-banner.is-done {
+  border-color: rgba(16, 185, 129, 0.35);
+  background: rgba(16, 185, 129, 0.1);
+}
+
+.sablon-queue-banner.is-error {
+  border-color: rgba(239, 68, 68, 0.4);
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.sablon-queue-banner-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sablon-drafts-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.sablon-draft-card {
+  overflow: visible;
+}
+
+.sablon-draft-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-surface-2);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+}
+
+.sablon-draft-body {
+  padding: 20px;
+}
+
+.ai-progress-box {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(59, 130, 246, 0.25);
+  background: var(--bg-surface);
+}
+
+.ai-progress-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12.5px;
+  margin-bottom: 7px;
+  flex-wrap: wrap;
+}
+
+.ai-progress-track {
+  width: 100%;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border-color);
+  overflow: hidden;
+}
+
+.ai-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #2563eb 0%, #3b82f6 100%);
+  transition: width 0.25s ease;
+}
+
+.ai-progress-fill.retrying {
+  background: linear-gradient(90deg, #d97706 0%, #f59e0b 100%);
+}
+
+.ai-progress-fill.done {
+  background: linear-gradient(90deg, #059669 0%, #10b981 100%);
+}
+
+.ai-progress-fill.error {
+  background: linear-gradient(90deg, #dc2626 0%, #ef4444 100%);
+}
+
+.sablon-form-footer-bar {
+  padding: 14px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 767px) {
+  .navbar-ai-progress {
+    max-width: 185px;
+    padding: 5px 8px;
+  }
+
+  .navbar-ai-sub {
+    display: none;
+  }
+
+  .sablon-draft-body {
+    padding: 14px;
+  }
+
+  .sablon-form-topbar {
+    padding: 14px;
+  }
+}

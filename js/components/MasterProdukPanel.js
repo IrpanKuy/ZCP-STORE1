@@ -9,17 +9,7 @@
     return { id: 'side_' + seqCounter, value: value || '' };
   }
 
-  function makeGroupingRow(namaGrouping, selectedSideIds, persistentId) {
-    seqCounter += 1;
-    return {
-      localId: 'grp_' + seqCounter,
-      id: persistentId || 'grp_' + Date.now() + '_' + seqCounter,
-      namaGrouping: namaGrouping || '',
-      selectedSideIds: Array.isArray(selectedSideIds) ? selectedSideIds.slice() : []
-    };
-  }
-
-  function makeTemplateRow(namaTemplate, sideValues, rawGroupings, persistentId) {
+  function makeTemplateRow(namaTemplate, sideValues, persistentId) {
     seqCounter += 1;
     var sideRows =
       Array.isArray(sideValues) && sideValues.length
@@ -28,31 +18,11 @@
           })
         : [makeSideRow('Depan'), makeSideRow('Belakang')];
 
-    var nameToSideId = {};
-    sideRows.forEach(function (sr) {
-      var clean = String(sr.value || '').trim().toLowerCase();
-      if (clean && !nameToSideId[clean]) {
-        nameToSideId[clean] = sr.id;
-      }
-    });
-
-    var groupings = Array.isArray(rawGroupings)
-      ? rawGroupings.map(function (g) {
-          var matchedIds = (Array.isArray(g.sisi) ? g.sisi : [])
-            .map(function (name) {
-              return nameToSideId[String(name || '').trim().toLowerCase()] || '';
-            })
-            .filter(Boolean);
-          return makeGroupingRow(g.namaGrouping || '', matchedIds, g.id);
-        })
-      : [];
-
     return {
       localId: 'tpl_' + seqCounter,
       id: persistentId || 'tpl_' + Date.now() + '_' + seqCounter,
       namaTemplate: namaTemplate || '',
-      sisiRows: sideRows,
-      groupings: groupings
+      sisiRows: sideRows
     };
   }
 
@@ -138,7 +108,7 @@
       openAddModal: function () {
         this.editingId = null;
         this.namaProduk = '';
-        this.templateRows = [makeTemplateRow('', ['Depan', 'Belakang'], [])];
+        this.templateRows = [makeTemplateRow('', ['Depan', 'Belakang'])];
         this.formError = '';
         this.modalOpen = true;
         this.$nextTick(function () {
@@ -153,9 +123,9 @@
         var normalizedTpls = this.getNormalizedTemplates(item);
         this.templateRows = normalizedTpls.length
           ? normalizedTpls.map(function (tpl) {
-              return makeTemplateRow(tpl.namaTemplate, tpl.sisiList, tpl.groupings, tpl.id);
+              return makeTemplateRow(tpl.namaTemplate, tpl.sisiList, tpl.id);
             })
-          : [makeTemplateRow('', ['Depan', 'Belakang'], [])];
+          : [makeTemplateRow('', ['Depan', 'Belakang'])];
         this.formError = '';
         this.modalOpen = true;
         this.$nextTick(function () {
@@ -184,7 +154,7 @@
         }
       },
       addTemplateRow: function () {
-        this.templateRows.push(makeTemplateRow('', ['Depan', 'Belakang'], []));
+        this.templateRows.push(makeTemplateRow('', ['Depan', 'Belakang']));
       },
       removeTemplateRow: function (idx) {
         if (this.templateRows.length <= 1) return;
@@ -195,78 +165,7 @@
       },
       removeSisiRow: function (tpl, idx) {
         if (tpl.sisiRows.length <= 1) return;
-        var removed = tpl.sisiRows.splice(idx, 1)[0];
-        if (removed && Array.isArray(tpl.groupings)) {
-          tpl.groupings.forEach(function (g) {
-            g.selectedSideIds = (g.selectedSideIds || []).filter(function (id) {
-              return id !== removed.id;
-            });
-          });
-        }
-      },
-      addGroupingRow: function (tpl) {
-        tpl.groupings.push(makeGroupingRow('', []));
-      },
-      removeGroupingRow: function (tpl, gIdx) {
-        tpl.groupings.splice(gIdx, 1);
-      },
-      isSideInGrouping: function (grp, sideId) {
-        return Array.isArray(grp.selectedSideIds) && grp.selectedSideIds.indexOf(sideId) !== -1;
-      },
-      toggleSideInGrouping: function (grp, sideId) {
-        if (!Array.isArray(grp.selectedSideIds)) {
-          grp.selectedSideIds = [];
-        }
-        var idx = grp.selectedSideIds.indexOf(sideId);
-        if (idx === -1) {
-          grp.selectedSideIds.push(sideId);
-        } else {
-          grp.selectedSideIds.splice(idx, 1);
-        }
-      },
-      selectAllSidesForGrouping: function (tpl, grp) {
-        grp.selectedSideIds = (tpl.sisiRows || [])
-          .filter(function (s) {
-            return String(s.value || '').trim() !== '';
-          })
-          .map(function (s) {
-            return s.id;
-          });
-      },
-      clearGroupingSides: function (grp) {
-        grp.selectedSideIds = [];
-      },
-      getGroupingPreviewNames: function (tpl, grp) {
-        var sideMap = {};
-        (tpl.sisiRows || []).forEach(function (sr) {
-          var v = String(sr.value || '').trim();
-          if (v) sideMap[sr.id] = v;
-        });
-        return (grp.selectedSideIds || [])
-          .map(function (id) {
-            return sideMap[id] || '';
-          })
-          .filter(Boolean);
-      },
-      getOverlappingSideNames: function (tpl) {
-        var counts = {};
-        var overlaps = [];
-        var sideMap = {};
-        (tpl.sisiRows || []).forEach(function (sr) {
-          var v = String(sr.value || '').trim();
-          if (v) sideMap[sr.id] = v;
-        });
-        (tpl.groupings || []).forEach(function (grp) {
-          (grp.selectedSideIds || []).forEach(function (id) {
-            var name = sideMap[id];
-            if (!name) return;
-            counts[id] = (counts[id] || 0) + 1;
-            if (counts[id] === 2) {
-              overlaps.push(name);
-            }
-          });
-        });
-        return overlaps;
+        tpl.sisiRows.splice(idx, 1);
       },
       saveProduk: async function () {
         this.formError = '';
@@ -329,38 +228,10 @@
             return;
           }
 
-          var cleanGroupings = [];
-          var rawGrps = Array.isArray(tpl.groupings) ? tpl.groupings : [];
-          for (var g = 0; g < rawGrps.length; g++) {
-            var grp = rawGrps[g];
-            var gName = (grp.namaGrouping || '').trim();
-            if (!gName) {
-              this.formError =
-                'Nama grouping ke-' + (g + 1) + ' pada template "' + tplName + '" wajib diisi.';
-              return;
-            }
-            var gSides = (grp.selectedSideIds || [])
-              .map(function (id) {
-                return sideMap[id] || '';
-              })
-              .filter(Boolean);
-            if (!gSides.length) {
-              this.formError =
-                'Pilih minimal 1 sisi untuk grouping "' + gName + '" pada template "' + tplName + '".';
-              return;
-            }
-            cleanGroupings.push({
-              id: grp.id,
-              namaGrouping: gName,
-              sisi: gSides
-            });
-          }
-
           cleanTemplates.push({
             id: tpl.id,
             namaTemplate: tplName,
-            sisiList: rawSides,
-            groupings: cleanGroupings
+            sisiList: rawSides
           });
         }
 
@@ -417,10 +288,10 @@
     template: `
       <div class="card">
         <div class="panel-toolbar">
-          <div class="panel-heading">
-            <h2>Master Data Produk</h2>
-            <p>Atur daftar produk, template sisi, daftar sisi, dan grouping desain sablon yang sama.</p>
-          </div>
+            <div class="panel-heading">
+              <h2>Master Data Produk</h2>
+              <p>Atur daftar produk beserta template sisi dan daftar sisinya secara dinamis.</p>
+            </div>
 
           <div class="panel-actions">
             <div class="search-box">
@@ -476,14 +347,14 @@
         <div v-else class="table-container">
           <table class="data-table responsive-table">
             <thead>
-              <tr>
-                <th class="col-no">No</th>
-                <th>Nama Produk</th>
-                <th>Template Sisi &amp; Grouping</th>
-                <th>Jumlah Template</th>
-                <th>Dibuat</th>
-                <th class="col-actions">Aksi</th>
-              </tr>
+                <tr>
+                  <th class="col-no">No</th>
+                  <th>Nama Produk</th>
+                  <th>Template Sisi</th>
+                  <th>Jumlah Template</th>
+                  <th>Dibuat</th>
+                  <th class="col-actions">Aksi</th>
+                </tr>
             </thead>
             <tbody>
               <tr v-for="(item, index) in paginatedList" :key="item.id">
@@ -596,10 +467,10 @@
                 <div class="sisi-header-row" style="margin-bottom: 10px;">
                   <div>
                     <label class="form-label" style="margin-bottom: 2px;">
-                      Template Sisi, Daftar Sisi &amp; Grouping <span class="required">*</span>
+                      Template Sisi &amp; Daftar Sisi <span class="required">*</span>
                     </label>
                     <div class="form-hint">
-                      Buat satu atau beberapa template sisi (mis. "2 Logo + A6" atau "4 Sisi Semua Design Sama"), lalu atur sisi &amp; grouping opsional.
+                      Buat satu atau beberapa template sisi (mis. "2 Logo + A6" atau "Standar"), lalu atur daftar sisinya.
                     </div>
                   </div>
                   <button
@@ -689,129 +560,6 @@
                         <span>Tambah Sisi</span>
                       </button>
                     </div>
-
-                    <!-- Grouping Sisi Opsional -->
-                    <div class="grouping-section">
-                      <div class="sisi-header-row" style="margin-bottom: 8px;">
-                        <div>
-                          <div class="form-label" style="margin-bottom: 0; font-size: 13px;">
-                            Grouping Design Sama (Opsional)
-                          </div>
-                          <div class="form-hint">
-                            Gabungkan beberapa sisi yang memiliki desain sablon sama agar di Manajemen Sablon cukup diinput 1 kali dan hasilnya dibagi rata.
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          class="btn btn-secondary btn-sm"
-                          :disabled="saving"
-                          @click="addGroupingRow(tpl)"
-                        >
-                          <span class="material-symbols-rounded" style="font-size: 16px;">workspaces</span>
-                          <span>Tambah Grouping</span>
-                        </button>
-                      </div>
-
-                      <div
-                        v-if="getOverlappingSideNames(tpl).length"
-                        class="alert alert-warning"
-                        style="margin-bottom: 8px; font-size: 12px;"
-                      >
-                        <span class="material-symbols-rounded" style="font-size: 18px;">info</span>
-                        <div>
-                          Sisi <strong>{{ getOverlappingSideNames(tpl).join(', ') }}</strong> masuk ke lebih dari 1 grouping pada template ini. Pastikan pengisian jumlah sablon tidak melebihi target.
-                        </div>
-                      </div>
-
-                      <div v-if="!tpl.groupings.length" class="form-hint">
-                        Belum ada grouping. Jika tiap sisi desainnya berbeda, tidak perlu membuat grouping.
-                      </div>
-
-                      <div v-else class="grouping-list">
-                        <div
-                          v-for="(grp, gIdx) in tpl.groupings"
-                          :key="grp.localId"
-                          class="grouping-card"
-                        >
-                          <div class="grouping-card-head">
-                            <span class="badge-count">Grouping #{{ gIdx + 1 }}</span>
-                            <button
-                              type="button"
-                              class="btn btn-ghost btn-sm"
-                              style="color: var(--accent-danger);"
-                              :disabled="saving"
-                              @click="removeGroupingRow(tpl, gIdx)"
-                            >
-                              <span class="material-symbols-rounded" style="font-size: 16px;">delete</span>
-                              <span>Hapus</span>
-                            </button>
-                          </div>
-
-                          <div class="form-group" style="margin-bottom: 10px;">
-                            <label class="form-label" style="font-size: 12.5px;">
-                              Nama Grouping <span class="required">*</span>
-                            </label>
-                            <input
-                              v-model="grp.namaGrouping"
-                              type="text"
-                              class="form-control"
-                              placeholder="Contoh: Semua sisi design sama"
-                              :disabled="saving"
-                            />
-                          </div>
-
-                          <div class="sisi-header-row" style="margin-bottom: 6px;">
-                            <label class="form-label" style="margin-bottom: 0; font-size: 12.5px;">
-                              Pilih Sisi dalam Grouping <span class="required">*</span>
-                            </label>
-                            <div class="sisi-mini-actions">
-                              <button
-                                type="button"
-                                class="link-btn"
-                                :disabled="saving"
-                                @click="selectAllSidesForGrouping(tpl, grp)"
-                              >
-                                Pilih Semua
-                              </button>
-                              <button
-                                type="button"
-                                class="link-btn"
-                                :disabled="saving"
-                                @click="clearGroupingSides(grp)"
-                              >
-                                Reset
-                              </button>
-                            </div>
-                          </div>
-
-                          <div class="sisi-selector-grid">
-                            <label
-                              v-for="sr in tpl.sisiRows.filter(function (x) { return String(x.value || '').trim() !== ''; })"
-                              :key="sr.id"
-                              class="sisi-option"
-                              :class="{ selected: isSideInGrouping(grp, sr.id) }"
-                            >
-                              <input
-                                type="checkbox"
-                                :checked="isSideInGrouping(grp, sr.id)"
-                                :disabled="saving"
-                                @change="toggleSideInGrouping(grp, sr.id)"
-                              />
-                              <span>{{ sr.value }}</span>
-                            </label>
-                          </div>
-
-                          <div
-                            v-if="getGroupingPreviewNames(tpl, grp).length"
-                            class="grouping-preview-pill"
-                          >
-                            Tampilan di Manajemen Sablon:
-                            <strong>{{ getGroupingPreviewNames(tpl, grp).join(' + ') }}</strong>
-                            <span>(dibagi rata ke {{ getGroupingPreviewNames(tpl, grp).length }} sisi)</span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
                   </div>
                 </div>
               </div>
@@ -875,32 +623,13 @@
                     <span class="chip">{{ tpl.sisiList.length }} sisi</span>
                   </div>
 
-                  <div style="margin-bottom: 8px;">
+                  <div style="margin-bottom: 4px;">
                     <div class="form-hint" style="margin-bottom: 5px; font-weight: 600;">Daftar Sisi:</div>
                     <div class="chips-wrap">
                       <span v-for="(sisi, sIdx) in tpl.sisiList" :key="sIdx" class="chip">
                         {{ sisi }}
                       </span>
                     </div>
-                  </div>
-
-                  <div v-if="tpl.groupings && tpl.groupings.length">
-                    <div class="form-hint" style="margin-bottom: 5px; font-weight: 600;">
-                      Grouping Design Sama (otomatis digabung di Manajemen Sablon):
-                    </div>
-                    <div class="chips-wrap">
-                      <span
-                        v-for="grp in tpl.groupings"
-                        :key="grp.id"
-                        class="grouping-chip"
-                      >
-                        <span class="material-symbols-rounded" style="font-size: 14px;">workspaces</span>
-                        <span>{{ grp.namaGrouping }}: {{ grp.sisi.join(' + ') }}</span>
-                      </span>
-                    </div>
-                  </div>
-                  <div v-else class="form-hint">
-                    Tidak ada grouping (tiap sisi diinput terpisah di Manajemen Sablon).
                   </div>
                 </div>
               </div>

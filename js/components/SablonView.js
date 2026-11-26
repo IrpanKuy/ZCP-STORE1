@@ -3,20 +3,6 @@
 
   global.ZcpComponents = global.ZcpComponents || {};
 
-  var blockSeq = 1;
-  var stagedSeq = 1;
-
-  function makeOrderBlock() {
-    return {
-      localId: ++blockSeq,
-      searchText: '',
-      dropdownOpen: false,
-      selectedPesananId: '',
-      sisiInputs: {},
-      legacyExtraSlots: []
-    };
-  }
-
   global.ZcpComponents.SablonView = {
     name: 'SablonView',
     props: {
@@ -32,6 +18,12 @@
           return [];
         }
       },
+      aiConfig: {
+        type: Object,
+        default: function () {
+          return { geminiApiUrl: '', geminiApiKey: '' };
+        }
+      },
       loading: { type: Boolean, default: false },
       driveReady: { type: Boolean, default: false },
       userRole: { type: String, default: 'superadmin' },
@@ -40,9 +32,18 @@
       defaultPageSize: {
         type: [Number, String],
         default: 10
-      }
+      },
+      hasUnsavedDrafts: { type: Boolean, default: false },
+      aiQueue: { type: Object, default: null }
     },
-    emits: ['notify', 'request-confirm', 'go-pesanan', 'load-more'],
+    emits: [
+      'notify',
+      'request-confirm',
+      'go-pesanan',
+      'load-more',
+      'open-sablon-form',
+      'edit-sablon'
+    ],
     data: function () {
       return {
         searchQuery: '',
@@ -50,24 +51,7 @@
         currentPage: 1,
         localPageSize: this.defaultPageSize,
         busyIds: {},
-        modalOpen: false,
-        editingSablon: null,
-        saving: false,
-        uploadProgressText: '',
-        formError: '',
-        isDragging: false,
-        form: {
-          namaSablon: '',
-          orderBlocks: [makeOrderBlock()],
-          jumlahPerulangan: 1,
-          catatan: '',
-          existingFiles: [],
-          removedFileIds: [],
-          stagedFiles: []
-        },
-        previewModalOpen: false,
-        previewSablon: null,
-        lightboxFile: null
+        previewSablon: null
       };
     },
     watch: {
@@ -85,51 +69,6 @@
     computed: {
       isKaryawan: function () {
         return this.userRole === 'karyawan';
-      },
-      pesananMap: function () {
-        var map = {};
-        for (var i = 0; i < this.pesananList.length; i++) {
-          map[this.pesananList[i].id] = this.pesananList[i];
-        }
-        return map;
-      },
-      sortedPesananOptions: function () {
-        return this.pesananList.slice().sort(function (a, b) {
-          if (a.statusSelesai !== b.statusSelesai) {
-            return a.statusSelesai ? 1 : -1;
-          }
-          return (a.namaPemesan || '').localeCompare(b.namaPemesan || '');
-        });
-      },
-      /**
-       * Total qty per sisi aktual yang sudah selesai dari seluruh sablon
-       * (memperhitungkan pembagian rata dari grouping sisi).
-       */
-      completedQtyMap: function () {
-        var totals = {};
-        for (var i = 0; i < this.sablonList.length; i++) {
-          var s = this.sablonList[i];
-          var checkedCount = Array.isArray(s.perulanganChecks)
-            ? s.perulanganChecks.filter(Boolean).length
-            : s.statusSelesai
-            ? Math.max(1, parseInt(s.jumlahPerulangan, 10) || 1)
-            : 0;
-          if (checkedCount <= 0) continue;
-          var items = Array.isArray(s.pesananItems) ? s.pesananItems : [];
-          for (var j = 0; j < items.length; j++) {
-            var item = items[j];
-            var pid = item && item.pesananId;
-            if (!pid) continue;
-            if (!totals[pid]) totals[pid] = {};
-            var expanded = global.ZcpSablonService.expandItemToSideTotals(item, checkedCount);
-            Object.keys(expanded).forEach(function (side) {
-              totals[pid][side] = global.ZcpSablonService.roundQty(
-                (totals[pid][side] || 0) + (Number(expanded[side]) || 0)
-              );
-            });
-          }
-        }
-        return totals;
       },
       activeSablonCount: function () {
         return this.sablonList.filter(function (s) {
@@ -170,482 +109,21 @@
         return this.filteredList.slice(start, start + size);
       }
     },
-    mounted: function () {
-      window.addEventListener('keydown', this.handleKeydown);
-    },
-    beforeUnmount: function () {
-      window.removeEventListener('keydown', this.handleKeydown);
-      this.revokeAllStagedPreviews();
-    },
     methods: {
       formatDate: function (ts) {
         return global.ZcpPesananService.formatDate(ts);
-      },
-      formatFileSize: function (bytes) {
-        return global.ZcpPesananService.formatFileSize(bytes);
       },
       checkedCount: function (sablon) {
         if (!Array.isArray(sablon.perulanganChecks)) return 0;
         return sablon.perulanganChecks.filter(Boolean).length;
       },
-      getGroupMembersCount: function (item, slotKey) {
-        var arr = item && item.sisiSlotMap && item.sisiSlotMap[slotKey];
-        return Array.isArray(arr) ? arr.length : 1;
-      },
-      getOrderSlots: function (order, block) {
-        var slots = global.ZcpSablonService.buildOrderSablonSlots(order);
-        var seen = {};
-        slots.forEach(function (sl) {
-          seen[sl.key] = true;
-        });
-        if (block && Array.isArray(block.legacyExtraSlots)) {
-          block.legacyExtraSlots.forEach(function (sl) {
-            if (!seen[sl.key]) {
-              seen[sl.key] = true;
-              slots.push(sl);
-            }
-          });
-        }
-        return slots;
-      },
-      revokeAllStagedPreviews: function () {
-        var staged = this.form.stagedFiles || [];
-        for (var i = 0; i < staged.length; i++) {
-          if (staged[i].previewUrl) {
-            URL.revokeObjectURL(staged[i].previewUrl);
-          }
-        }
-      },
-      resetForm: function () {
-        this.revokeAllStagedPreviews();
-        this.editingSablon = null;
-        this.formError = '';
-        this.uploadProgressText = '';
-        this.isDragging = false;
-        this.form = {
-          namaSablon: '',
-          orderBlocks: [makeOrderBlock()],
-          jumlahPerulangan: 1,
-          catatan: '',
-          existingFiles: [],
-          removedFileIds: [],
-          stagedFiles: []
-        };
-      },
-      openAddModal: function () {
+      openCreatePage: function () {
         if (this.isKaryawan) return;
-        this.resetForm();
-        this.modalOpen = true;
-        this.$nextTick(function () {
-          if (this.$refs.sablonNameInput) {
-            this.$refs.sablonNameInput.focus();
-          }
-        });
+        this.$emit('open-sablon-form');
       },
-      openEditModal: function (sablon) {
+      openEditPage: function (sablon) {
         if (this.isKaryawan) return;
-        this.resetForm();
-        this.editingSablon = sablon;
-        var self = this;
-
-        var blocks = (Array.isArray(sablon.pesananItems) ? sablon.pesananItems : []).map(function (item) {
-          var order = self.pesananMap[item.pesananId] || {
-            id: item.pesananId,
-            namaPemesan: item.namaPemesan,
-            namaProduk: item.namaProduk,
-            jumlahProduk: item.jumlahProduk || 0,
-            namaSisi: Object.keys(item.sisiQuantities || {}),
-            sisiGroupings: []
-          };
-          var slots = global.ZcpSablonService.buildOrderSablonSlots(order);
-          var slotKeyMap = {};
-          slots.forEach(function (sl) {
-            slotKeyMap[sl.key] = true;
-          });
-
-          var sisiMap = {};
-          slots.forEach(function (sl) {
-            sisiMap[sl.key] = Number(item.sisiQuantities && item.sisiQuantities[sl.key]) || 0;
-          });
-
-          // Pertahankan slot historis jika ada perubahan grouping atau sablon lama
-          var legacyExtraSlots = [];
-          var oldSq = item.sisiQuantities || {};
-          var oldSlotMap = item.sisiSlotMap || {};
-          Object.keys(oldSq).forEach(function (oldKey) {
-            if (!slotKeyMap[oldKey] && (Number(oldSq[oldKey]) || 0) > 0) {
-              var members =
-                Array.isArray(oldSlotMap[oldKey]) && oldSlotMap[oldKey].length
-                  ? oldSlotMap[oldKey]
-                  : [oldKey];
-              legacyExtraSlots.push({
-                key: oldKey,
-                label: oldKey,
-                isGroup: members.length > 1,
-                namaGrouping: 'Tersimpan',
-                sides: members
-              });
-              sisiMap[oldKey] = Number(oldSq[oldKey]) || 0;
-            }
-          });
-
-          var block = makeOrderBlock();
-          block.selectedPesananId = item.pesananId || '';
-          block.sisiInputs = sisiMap;
-          block.legacyExtraSlots = legacyExtraSlots;
-          block.searchText = '';
-          block.dropdownOpen = false;
-          return block;
-        });
-
-        this.form = {
-          namaSablon: sablon.namaSablon || '',
-          orderBlocks: blocks.length ? blocks : [makeOrderBlock()],
-          jumlahPerulangan: Number(sablon.jumlahPerulangan) || 1,
-          catatan: sablon.catatan || '',
-          existingFiles: Array.isArray(sablon.fileSablon)
-            ? sablon.fileSablon.map(function (f) {
-                return Object.assign({}, f);
-              })
-            : [],
-          removedFileIds: [],
-          stagedFiles: []
-        };
-
-        this.modalOpen = true;
-        this.$nextTick(function () {
-          if (this.$refs.sablonNameInput) {
-            this.$refs.sablonNameInput.focus();
-          }
-        });
-      },
-      closeModal: function () {
-        if (this.saving) return;
-        this.revokeAllStagedPreviews();
-        this.modalOpen = false;
-      },
-      addOrderBlock: function () {
-        this.form.orderBlocks.push(makeOrderBlock());
-      },
-      removeOrderBlock: function (idx) {
-        if (this.form.orderBlocks.length <= 1) return;
-        this.form.orderBlocks.splice(idx, 1);
-      },
-      isOrderUsedInOtherBlock: function (orderId, currentBlockIdx) {
-        for (var i = 0; i < this.form.orderBlocks.length; i++) {
-          if (i !== currentBlockIdx && this.form.orderBlocks[i].selectedPesananId === orderId) {
-            return true;
-          }
-        }
-        return false;
-      },
-      filteredOrderOptions: function (block) {
-        var q = (block.searchText || '').trim().toLowerCase();
-        if (!q) return this.sortedPesananOptions;
-        return this.sortedPesananOptions.filter(function (order) {
-          return (
-            (order.namaPemesan || '').toLowerCase().indexOf(q) !== -1 ||
-            (order.namaProduk || '').toLowerCase().indexOf(q) !== -1 ||
-            (order.namaTemplateSisi || '').toLowerCase().indexOf(q) !== -1 ||
-            (order.namaExpedisi || '').toLowerCase().indexOf(q) !== -1
-          );
-        });
-      },
-      openBlockDropdown: function (block) {
-        this.form.orderBlocks.forEach(function (b) {
-          if (b.localId !== block.localId) b.dropdownOpen = false;
-        });
-        block.dropdownOpen = true;
-      },
-      selectOrderForBlock: function (block, blockIdx, order) {
-        if (this.isOrderUsedInOtherBlock(order.id, blockIdx)) return;
-        block.selectedPesananId = order.id;
-        block.searchText = '';
-        block.dropdownOpen = false;
-        block.legacyExtraSlots = [];
-
-        var sisiInputs = {};
-        var slots = global.ZcpSablonService.buildOrderSablonSlots(order);
-        for (var i = 0; i < slots.length; i++) {
-          sisiInputs[slots[i].key] = 0;
-        }
-        block.sisiInputs = sisiInputs;
-      },
-      clearOrderBlockSelection: function (block) {
-        block.selectedPesananId = '';
-        block.sisiInputs = {};
-        block.legacyExtraSlots = [];
-        block.searchText = '';
-        block.dropdownOpen = true;
-      },
-      getOrderForBlock: function (block) {
-        if (!block.selectedPesananId) return null;
-        if (this.pesananMap[block.selectedPesananId]) {
-          return this.pesananMap[block.selectedPesananId];
-        }
-        if (this.editingSablon && Array.isArray(this.editingSablon.pesananItems)) {
-          var found = this.editingSablon.pesananItems.find(function (p) {
-            return p.pesananId === block.selectedPesananId;
-          });
-          if (found) {
-            return {
-              id: found.pesananId,
-              namaPemesan: found.namaPemesan,
-              namaProduk: found.namaProduk,
-              jumlahProduk: found.jumlahProduk || 0,
-              namaSisi: Object.keys(found.sisiQuantities || {}),
-              sisiGroupings: [],
-              deletedFromMaster: true
-            };
-          }
-        }
-        return null;
-      },
-      /**
-       * Menghitung total qty yang sudah selesai dari sablon LAIN untuk sisi aktual tertentu.
-       */
-      getOtherCompletedForSide: function (pesananId, sideName) {
-        var totalCompleted =
-          (this.completedQtyMap[pesananId] && Number(this.completedQtyMap[pesananId][sideName])) ||
-          0;
-        if (this.editingSablon) {
-          var prevChecked = this.checkedCount(this.editingSablon);
-          if (prevChecked > 0) {
-            var prevItems = Array.isArray(this.editingSablon.pesananItems)
-              ? this.editingSablon.pesananItems
-              : [];
-            var prevItem = prevItems.find(function (it) {
-              return it.pesananId === pesananId;
-            });
-            if (prevItem) {
-              var expandedSelf = global.ZcpSablonService.expandItemToSideTotals(
-                prevItem,
-                prevChecked
-              );
-              totalCompleted -= Number(expandedSelf[sideName]) || 0;
-            }
-          }
-        }
-        return Math.max(0, global.ZcpSablonService.roundQty(totalCompleted));
-      },
-      getOtherCompletedForSlot: function (orderId, slot) {
-        var self = this;
-        var sum = 0;
-        (slot.sides || []).forEach(function (sideName) {
-          sum += self.getOtherCompletedForSide(orderId, sideName);
-        });
-        return global.ZcpSablonService.roundQty(sum);
-      },
-      getFormMultiplier: function () {
-        return Math.max(1, parseInt(this.form.jumlahPerulangan, 10) || 1);
-      },
-      getSlotEffectiveTotal: function (block, slotKey) {
-        var inputVal = Math.max(0, parseInt(block.sisiInputs[slotKey], 10) || 0);
-        return inputVal * this.getFormMultiplier();
-      },
-      getSlotPerSideTotal: function (block, slot) {
-        var eff = this.getSlotEffectiveTotal(block, slot.key);
-        var countSides = Math.max(1, (slot.sides || []).length);
-        return global.ZcpSablonService.roundQty(eff / countSides);
-      },
-      getSlotTargetTotal: function (order, slot) {
-        var base = Number(order && order.jumlahProduk) || 0;
-        var countSides = Math.max(1, (slot.sides || []).length);
-        return base * countSides;
-      },
-      getSlotOverAmount: function (block, order, slot) {
-        var targetTotal = this.getSlotTargetTotal(order, slot);
-        if (!targetTotal) return 0;
-        var otherDone = this.getOtherCompletedForSlot(order.id, slot);
-        var eff = this.getSlotEffectiveTotal(block, slot.key);
-        return Math.max(0, global.ZcpSablonService.roundQty(otherDone + eff - targetTotal));
-      },
-      triggerFilePicker: function () {
-        if (this.saving) return;
-        if (this.$refs.sablonFileInput) {
-          this.$refs.sablonFileInput.click();
-        }
-      },
-      onFileInputChange: function (event) {
-        var files = event && event.target && event.target.files ? event.target.files : [];
-        this.stageFiles(files);
-        if (event && event.target) {
-          event.target.value = '';
-        }
-      },
-      onFileDrop: function (event) {
-        this.isDragging = false;
-        if (this.saving) return;
-        var files = event && event.dataTransfer && event.dataTransfer.files ? event.dataTransfer.files : [];
-        this.stageFiles(files);
-      },
-      stageFiles: function (fileList) {
-        var files = Array.prototype.slice.call(fileList || []);
-        for (var i = 0; i < files.length; i++) {
-          var file = files[i];
-          try {
-            global.ZcpDriveService.validateFile(file);
-            var isImage = file.type === 'image/png' || file.type === 'image/jpeg';
-            this.form.stagedFiles.push({
-              localId: ++stagedSeq,
-              file: file,
-              name: file.name,
-              size: file.size,
-              mimeType: file.type,
-              previewUrl: isImage ? URL.createObjectURL(file) : ''
-            });
-          } catch (err) {
-            this.$emit('notify', {
-              type: 'error',
-              message: err && err.message ? err.message : 'File tidak valid.'
-            });
-          }
-        }
-      },
-      removeStagedFile: function (idx) {
-        var item = this.form.stagedFiles[idx];
-        if (item && item.previewUrl) {
-          URL.revokeObjectURL(item.previewUrl);
-        }
-        this.form.stagedFiles.splice(idx, 1);
-      },
-      isMarkedForRemoval: function (fileId) {
-        return this.form.removedFileIds.indexOf(fileId) !== -1;
-      },
-      toggleExistingFileRemoval: function (fileId) {
-        var idx = this.form.removedFileIds.indexOf(fileId);
-        if (idx === -1) {
-          this.form.removedFileIds.push(fileId);
-        } else {
-          this.form.removedFileIds.splice(idx, 1);
-        }
-      },
-      saveSablon: async function () {
-        this.formError = '';
-        this.uploadProgressText = '';
-
-        var namaSablon = (this.form.namaSablon || '').trim();
-        if (!namaSablon) {
-          this.formError = 'Nama sablon wajib diisi.';
-          return;
-        }
-
-        var perulangan = parseInt(this.form.jumlahPerulangan, 10);
-        if (!perulangan || perulangan < 1 || perulangan > 20) {
-          this.formError = 'Jumlah perulangan harus antara 1 sampai 20.';
-          return;
-        }
-
-        var pesananItems = [];
-        for (var i = 0; i < this.form.orderBlocks.length; i++) {
-          var block = this.form.orderBlocks[i];
-          var order = this.getOrderForBlock(block);
-          if (!order) {
-            this.formError = 'Pesanan pada baris ke-' + (i + 1) + ' belum dipilih.';
-            return;
-          }
-          var slots = this.getOrderSlots(order, block);
-          var sisiQuantities = {};
-          var sisiSlotMap = {};
-          var sumSide = 0;
-          for (var s = 0; s < slots.length; s++) {
-            var sl = slots[s];
-            var q = Math.max(0, parseInt(block.sisiInputs[sl.key], 10) || 0);
-            sisiQuantities[sl.key] = q;
-            sisiSlotMap[sl.key] = sl.sides.slice();
-            sumSide += q;
-          }
-          if (sumSide <= 0) {
-            this.formError =
-              'Isi minimal 1 jumlah sablon (> 0) untuk pesanan "' + order.namaPemesan + '".';
-            return;
-          }
-          pesananItems.push({
-            pesananId: order.id,
-            namaPemesan: order.namaPemesan,
-            namaProduk: order.namaProduk,
-            jumlahProduk: order.jumlahProduk || 0,
-            sisiQuantities: sisiQuantities,
-            sisiSlotMap: sisiSlotMap
-          });
-        }
-
-        if (this.form.stagedFiles.length > 0 && !this.driveReady) {
-          this.formError =
-            'Google Apps Script (gasUrl) belum diisi di js/firebase-config.js, sehingga file sablon tidak dapat diupload.';
-          return;
-        }
-
-        this.saving = true;
-        var self = this;
-        try {
-          var uploadedFiles = [];
-          if (this.form.stagedFiles.length > 0) {
-            var rawFiles = this.form.stagedFiles.map(function (f) {
-              return f.file;
-            });
-            uploadedFiles = await global.ZcpDriveService.uploadMultipleFiles(
-              rawFiles,
-              'sablon',
-              function (prog) {
-                self.uploadProgressText =
-                  'Mengupload file ' + prog.current + '/' + prog.total + ': ' + prog.fileName + '...';
-              }
-            );
-          }
-
-          this.uploadProgressText = 'Menyimpan data sablon...';
-
-          var keptExisting = this.form.existingFiles.filter(function (f) {
-            return self.form.removedFileIds.indexOf(f.fileId) === -1;
-          });
-          var mergedFiles = keptExisting.concat(uploadedFiles);
-
-          var payload = {
-            namaSablon: namaSablon,
-            pesananItems: pesananItems,
-            jumlahPerulangan: perulangan,
-            fileSablon: mergedFiles,
-            catatan: this.form.catatan
-          };
-
-          if (this.editingSablon) {
-            await global.ZcpSablonService.updateSablon(
-              this.editingSablon.id,
-              payload,
-              this.editingSablon
-            );
-
-            if (this.driveReady && this.form.removedFileIds.length > 0) {
-              for (var r = 0; r < this.form.removedFileIds.length; r++) {
-                try {
-                  await global.ZcpDriveService.deleteFile(this.form.removedFileIds[r]);
-                } catch (e) {
-                  // Best-effort cleanup
-                }
-              }
-            }
-
-            this.$emit('notify', {
-              type: 'success',
-              message: 'Data sablon "' + namaSablon + '" berhasil diperbarui.'
-            });
-          } else {
-            await global.ZcpSablonService.addSablon(payload);
-            this.$emit('notify', {
-              type: 'success',
-              message: 'Data sablon "' + namaSablon + '" berhasil ditambahkan.'
-            });
-          }
-
-          this.revokeAllStagedPreviews();
-          this.modalOpen = false;
-        } catch (err) {
-          this.formError = err && err.message ? err.message : 'Gagal menyimpan data sablon.';
-        } finally {
-          this.saving = false;
-          this.uploadProgressText = '';
-        }
+        this.$emit('edit-sablon', sablon);
       },
       canUndoSelesai: function (sablon) {
         if (!this.isKaryawan) return true;
@@ -778,27 +256,9 @@
       },
       openPreviewModal: function (sablon) {
         this.previewSablon = sablon;
-        this.previewModalOpen = true;
       },
       closePreviewModal: function () {
-        this.lightboxFile = null;
-        this.previewModalOpen = false;
         this.previewSablon = null;
-      },
-      openLightbox: function (file) {
-        this.lightboxFile = file;
-      },
-      closeLightbox: function () {
-        this.lightboxFile = null;
-      },
-      getHighResPreviewUrl: function (file) {
-        if (!file) return '';
-        return file.previewUrl || (file.fileId ? 'https://drive.google.com/thumbnail?id=' + file.fileId + '&sz=w1000' : '');
-      },
-      handleKeydown: function (event) {
-        if (event.key === 'Escape' && this.lightboxFile) {
-          this.closeLightbox();
-        }
       }
     },
     template: `
@@ -845,9 +305,32 @@
             </div>
             <div class="kpi-divider"></div>
             <div class="kpi-footer">
-              <span style="color: var(--accent-info); font-weight: 600;">Border biru</span> • sisi ter-grouping otomatis dibagi rata
+              <span style="color: var(--accent-info); font-weight: 600;">Border biru</span> • otomatis menambah progres sisi di Operasional
             </div>
           </div>
+        </div>
+
+        <div
+          v-if="!isKaryawan && hasUnsavedDrafts"
+          class="alert alert-info"
+          style="margin-bottom: 16px; align-items: center; justify-content: space-between; flex-wrap: wrap;"
+        >
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <span class="material-symbols-rounded">drafts</span>
+            <div>
+              <strong>Draft Buat Sablon tersimpan.</strong>
+              <span v-if="aiQueue && aiQueue.running">
+                Proses Isi Sisi Otomatis sedang berjalan di latar belakang ({{ aiQueue.percent }}%).
+              </span>
+              <span v-else>
+                Anda masih memiliki input sablon yang belum disimpan.
+              </span>
+            </div>
+          </div>
+          <button type="button" class="btn btn-primary btn-sm" @click="openCreatePage">
+            <span class="material-symbols-rounded" style="font-size: 16px;">arrow_forward</span>
+            <span>Lanjutkan Buat Sablon</span>
+          </button>
         </div>
 
         <div class="card">
@@ -884,9 +367,9 @@
                 <option value="done">Selesai</option>
               </select>
 
-              <button v-if="!isKaryawan" type="button" class="btn btn-primary" @click="openAddModal">
+              <button v-if="!isKaryawan" type="button" class="btn btn-primary" @click="openCreatePage">
                 <span class="material-symbols-rounded" style="font-size: 19px;">add</span>
-                <span>Tambah Sablon</span>
+                <span>{{ hasUnsavedDrafts ? 'Lanjutkan Buat Sablon' : 'Tambah Sablon' }}</span>
               </button>
             </div>
           </div>
@@ -905,14 +388,14 @@
               {{
                 (searchQuery || statusFilter !== 'all')
                   ? 'Coba ubah filter atau kata kunci pencarian di atas.'
-                  : (isKaryawan ? 'Belum ada data sablon untuk diproses.' : 'Buat data sablon baru dan hubungkan ke satu atau beberapa pesanan pelanggan.')
+                  : (isKaryawan ? 'Belum ada data sablon untuk diproses.' : 'Buat data sablon baru, upload film sablon, dan gunakan AI untuk mengisi jumlah sisi otomatis.')
               }}
             </p>
             <button
               v-if="!isKaryawan && !(searchQuery || statusFilter !== 'all')"
               type="button"
               class="btn btn-primary"
-              @click="openAddModal"
+              @click="openCreatePage"
             >
               <span class="material-symbols-rounded" style="font-size: 19px;">add</span>
               <span>Tambah Sablon Pertama</span>
@@ -943,7 +426,6 @@
                     </div>
                   </div>
 
-                  <!-- Daftar Pesanan Terhubung & Jumlah per Sisi / Grouping -->
                   <div class="sablon-linked-orders">
                     <div
                       v-for="(item, iIdx) in sablon.pesananItems"
@@ -964,13 +446,6 @@
                           {{ qty }} × {{ sablon.jumlahPerulangan }} = {{ qty * sablon.jumlahPerulangan }}
                         </strong>
                         <strong v-else>{{ qty }}</strong>
-                        <span
-                          v-if="getGroupMembersCount(item, sideName) > 1"
-                          class="form-hint"
-                          style="font-size: 11px;"
-                        >
-                          ({{ Math.round(((qty * sablon.jumlahPerulangan) / getGroupMembersCount(item, sideName)) * 100) / 100 }}/sisi)
-                        </span>
                       </span>
                     </div>
                   </div>
@@ -1026,7 +501,7 @@
                     type="button"
                     class="btn btn-secondary btn-sm"
                     :disabled="Boolean(busyIds[sablon.id])"
-                    @click="openEditModal(sablon)"
+                    @click="openEditPage(sablon)"
                   >
                     <span class="material-symbols-rounded" style="font-size: 16px;">edit</span>
                     <span>Edit</span>
@@ -1095,568 +570,13 @@
           </div>
         </div>
 
-        <!-- Modal Tambah / Edit Sablon -->
-        <div
-          v-if="modalOpen"
-          class="modal-overlay"
-          role="dialog"
-          aria-modal="true"
-          @click.self="closeModal"
-        >
-          <div class="modal-card modal-lg">
-            <div class="modal-header">
-              <h3 class="modal-title">
-                {{ editingSablon ? 'Edit Data Sablon' : 'Tambah Data Sablon' }}
-              </h3>
-              <button
-                type="button"
-                class="btn btn-ghost btn-icon"
-                :disabled="saving"
-                aria-label="Tutup modal"
-                @click="closeModal"
-              >
-                <span class="material-symbols-rounded">close</span>
-              </button>
-            </div>
-
-            <form @submit.prevent="saveSablon">
-              <div class="modal-body">
-                <div v-if="!pesananList.length && !editingSablon" class="alert alert-warning">
-                  <span class="material-symbols-rounded">warning</span>
-                  <div style="flex: 1;">
-                    <strong>Belum ada data pesanan.</strong>
-                    <div>Buat pesanan terlebih dahulu di Manajemen Pesanan agar bisa dihubungkan ke sablon.</div>
-                    <button
-                      type="button"
-                      class="btn btn-secondary btn-sm"
-                      style="margin-top: 8px;"
-                      @click="closeModal(); $emit('go-pesanan');"
-                    >
-                      Buka Manajemen Pesanan
-                    </button>
-                  </div>
-                </div>
-
-                <div v-if="formError" class="alert alert-danger" role="alert">
-                  <span class="material-symbols-rounded">error</span>
-                  <div>{{ formError }}</div>
-                </div>
-
-                <div class="form-row-2">
-                  <div class="form-group">
-                    <label class="form-label" for="sablon-nama">
-                      Nama Sablon <span class="required">*</span>
-                    </label>
-                    <input
-                      id="sablon-nama"
-                      ref="sablonNameInput"
-                      v-model="form.namaSablon"
-                      type="text"
-                      class="form-control"
-                      placeholder="Contoh: Film Sablon Plastisol Logo ZCP"
-                      :disabled="saving"
-                      required
-                    />
-                  </div>
-
-                  <div class="form-group">
-                    <label class="form-label" for="sablon-perulangan">
-                      Jumlah Perulangan Print <span class="required">*</span>
-                    </label>
-                    <input
-                      id="sablon-perulangan"
-                      v-model.number="form.jumlahPerulangan"
-                      type="number"
-                      min="1"
-                      max="20"
-                      step="1"
-                      class="form-control"
-                      :disabled="saving"
-                      required
-                    />
-                    <span class="form-hint">
-                      Setiap 1x print mencetak jumlah sisi di bawah. Total hasil = jumlah sisi × {{ getFormMultiplier() }} kali print.
-                    </span>
-                  </div>
-                </div>
-
-                <!-- Dynamic Multi-Order Selector (+ Tambah Pesanan) -->
-                <div class="form-group">
-                  <div class="sisi-header-row" style="margin-bottom: 8px;">
-                    <label class="form-label" style="margin: 0;">
-                      Pesanan Terhubung &amp; Jumlah per Sisi <span class="required">*</span>
-                    </label>
-                    <button
-                      type="button"
-                      class="btn btn-secondary btn-sm"
-                      :disabled="saving"
-                      @click="addOrderBlock"
-                    >
-                      <span class="material-symbols-rounded" style="font-size: 17px;">add</span>
-                      <span>Tambah Pesanan</span>
-                    </button>
-                  </div>
-
-                  <div class="sablon-blocks-wrap">
-                    <div
-                      v-for="(block, bIdx) in form.orderBlocks"
-                      :key="block.localId"
-                      class="sablon-order-block"
-                    >
-                      <div class="sablon-block-head">
-                        <span class="badge-count">Pesanan #{{ bIdx + 1 }}</span>
-                        <button
-                          type="button"
-                          class="btn btn-ghost btn-sm"
-                          style="color: var(--accent-danger);"
-                          :disabled="saving || form.orderBlocks.length <= 1"
-                          @click="removeOrderBlock(bIdx)"
-                        >
-                          <span class="material-symbols-rounded" style="font-size: 16px;">delete</span>
-                          <span>Hapus</span>
-                        </button>
-                      </div>
-
-                      <!-- Searchable Dropdown -->
-                      <div v-if="!block.selectedPesananId" class="searchable-select">
-                        <div class="search-box" style="width: 100%; min-width: 0;">
-                          <span class="material-symbols-rounded input-icon">search</span>
-                          <input
-                            v-model="block.searchText"
-                            type="text"
-                            class="form-control"
-                            placeholder="Cari nama pemesan, produk, atau template..."
-                            :disabled="saving"
-                            @focus="openBlockDropdown(block)"
-                          />
-                        </div>
-
-                        <div v-if="block.dropdownOpen" class="searchable-menu">
-                          <div v-if="!filteredOrderOptions(block).length" class="searchable-empty">
-                            Pesanan tidak ditemukan.
-                          </div>
-                          <button
-                            v-for="order in filteredOrderOptions(block)"
-                            :key="order.id"
-                            type="button"
-                            class="searchable-option"
-                            :disabled="isOrderUsedInOtherBlock(order.id, bIdx)"
-                            @click="selectOrderForBlock(block, bIdx, order)"
-                          >
-                            <div>
-                              <strong>{{ order.namaPemesan }}</strong> — {{ order.namaProduk }}
-                              <span v-if="order.namaTemplateSisi" class="form-hint">
-                                [{{ order.namaTemplateSisi }}]
-                              </span>
-                              <span class="form-hint">({{ order.jumlahProduk }} pcs • {{ order.namaSisi.join(', ') }})</span>
-                            </div>
-                            <span
-                              v-if="isOrderUsedInOtherBlock(order.id, bIdx)"
-                              class="form-hint"
-                            >
-                              Sudah dipilih
-                            </span>
-                            <span
-                              v-else
-                              class="status-badge"
-                              :class="order.statusSelesai ? 'done' : 'active'"
-                            >
-                              {{ order.statusSelesai ? 'Selesai' : 'Aktif' }}
-                            </span>
-                          </button>
-                        </div>
-                      </div>
-
-                      <!-- Input Qty per Slot (Sisi Individual maupun Grouping Gabungan) -->
-                      <div v-else>
-                        <div class="selected-order-banner">
-                          <div>
-                            <strong>{{ getOrderForBlock(block).namaPemesan }}</strong>
-                            <span> — {{ getOrderForBlock(block).namaProduk }}</span>
-                            <span v-if="getOrderForBlock(block).namaTemplateSisi" class="template-badge" style="margin-left: 6px;">
-                              {{ getOrderForBlock(block).namaTemplateSisi }}
-                            </span>
-                            <span class="form-hint" style="margin-left: 4px;">
-                              (Target: {{ getOrderForBlock(block).jumlahProduk }} pcs/sisi)
-                            </span>
-                          </div>
-                          <button
-                            type="button"
-                            class="btn btn-secondary btn-sm"
-                            :disabled="saving"
-                            @click="clearOrderBlockSelection(block)"
-                          >
-                            Ganti Pesanan
-                          </button>
-                        </div>
-
-                        <div class="sisi-qty-grid">
-                          <div
-                            v-for="slot in getOrderSlots(getOrderForBlock(block), block)"
-                            :key="slot.key"
-                            class="sisi-qty-card"
-                            :class="{ 'is-grouped-slot': slot.isGroup }"
-                          >
-                            <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px; flex-wrap: wrap; margin-bottom: 4px;">
-                              <label class="form-label" style="margin-bottom: 0;">
-                                {{ slot.label }}
-                                <span class="form-hint" style="font-weight: 500;">(per 1x print)</span>
-                              </label>
-                              <span v-if="slot.isGroup" class="grouping-chip">
-                                <span class="material-symbols-rounded" style="font-size: 13px;">workspaces</span>
-                                <span>{{ slot.namaGrouping || 'Grouping' }} ({{ slot.sides.length }} sisi)</span>
-                              </span>
-                            </div>
-                            <input
-                              v-model.number="block.sisiInputs[slot.key]"
-                              type="number"
-                              min="0"
-                              step="1"
-                              class="form-control"
-                              :disabled="saving"
-                            />
-                            <div
-                              v-if="(parseInt(block.sisiInputs[slot.key], 10) || 0) > 0"
-                              class="sisi-total-preview"
-                            >
-                              <template v-if="slot.isGroup">
-                                Total selesai: {{ getSlotEffectiveTotal(block, slot.key) }} pcs
-                                → Dibagi rata ke {{ slot.sides.length }} sisi =
-                                <strong>{{ getSlotPerSideTotal(block, slot) }} pcs/sisi</strong>
-                              </template>
-                              <template v-else>
-                                Jumlah setelah selesai sisi {{ slot.label }} jadi {{ getSlotEffectiveTotal(block, slot.key) }} pcs
-                              </template>
-                              <span v-if="getFormMultiplier() > 1">
-                                ({{ parseInt(block.sisiInputs[slot.key], 10) || 0 }} × {{ getFormMultiplier() }} print)
-                              </span>
-                            </div>
-                            <div class="form-hint" style="margin-top: 4px;">
-                              Sudah di-print: {{ getOtherCompletedForSlot(getOrderForBlock(block).id, slot) }}/{{ getSlotTargetTotal(getOrderForBlock(block), slot) }}
-                              • Sisa: {{ Math.max(0, getSlotTargetTotal(getOrderForBlock(block), slot) - getOtherCompletedForSlot(getOrderForBlock(block).id, slot)) }}
-                            </div>
-                            <div
-                              v-if="getSlotOverAmount(block, getOrderForBlock(block), slot) > 0"
-                              class="over-warn"
-                            >
-                              Melebihi target (+{{ getSlotOverAmount(block, getOrderForBlock(block), slot) }} pcs)
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Multi Upload File Sablon -->
-                <div class="form-group">
-                  <label class="form-label">Upload File Sablon (PNG, JPG, PDF)</label>
-
-                  <div v-if="!driveReady" class="alert alert-warning" style="margin-bottom: 10px;">
-                    <span class="material-symbols-rounded">cloud_off</span>
-                    <div>
-                      <code>gasConfig.gasUrl</code> belum diisi di <code>js/firebase-config.js</code>.
-                      Data sablon tetap bisa disimpan tanpa file.
-                    </div>
-                  </div>
-
-                  <input
-                    ref="sablonFileInput"
-                    type="file"
-                    multiple
-                    accept=".png,.jpg,.jpeg,.pdf"
-                    style="display: none;"
-                    @change="onFileInputChange"
-                  />
-
-                  <div
-                    class="upload-dropzone"
-                    :class="{ dragging: isDragging }"
-                    @click="triggerFilePicker"
-                    @dragover.prevent="isDragging = true"
-                    @dragleave.prevent="isDragging = false"
-                    @drop.prevent="onFileDrop"
-                  >
-                    <span class="material-symbols-rounded">cloud_upload</span>
-                    <div class="upload-dropzone-title">Klik atau seret file sablon ke sini</div>
-                    <div class="upload-dropzone-sub">
-                      Support PNG, JPG/JPEG, PDF (maks. 15 MB per file) — disimpan ke Google Drive
-                    </div>
-                  </div>
-
-                  <div v-if="form.existingFiles.length" class="file-preview-list">
-                    <div
-                      v-for="ef in form.existingFiles"
-                      :key="ef.fileId"
-                      class="file-preview-item"
-                      :class="{ 'marked-remove': isMarkedForRemoval(ef.fileId) }"
-                    >
-                      <div class="file-preview-left">
-                        <img
-                          v-if="ef.mimeType !== 'application/pdf' && ef.previewUrl"
-                          :src="ef.previewUrl"
-                          :alt="ef.originalName"
-                          class="file-thumb"
-                        />
-                        <div v-else class="file-thumb">
-                          <span class="material-symbols-rounded">picture_as_pdf</span>
-                        </div>
-                        <div class="file-meta">
-                          <div class="file-name">{{ ef.originalName || ef.fileName }}</div>
-                          <div class="file-size">Tersimpan di Drive • {{ formatFileSize(ef.size) }}</div>
-                        </div>
-                      </div>
-                      <div class="action-group">
-                        <a
-                          v-if="ef.viewUrl"
-                          :href="ef.viewUrl"
-                          target="_blank"
-                          rel="noopener"
-                          class="btn btn-secondary btn-sm"
-                        >
-                          Lihat
-                        </a>
-                        <button
-                          type="button"
-                          class="btn btn-sm"
-                          :class="isMarkedForRemoval(ef.fileId) ? 'btn-secondary' : 'btn-danger'"
-                          :disabled="saving"
-                          @click="toggleExistingFileRemoval(ef.fileId)"
-                        >
-                          {{ isMarkedForRemoval(ef.fileId) ? 'Batal Hapus' : 'Hapus' }}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div v-if="form.stagedFiles.length" class="file-preview-list">
-                    <div
-                      v-for="(sf, idx) in form.stagedFiles"
-                      :key="sf.localId"
-                      class="file-preview-item"
-                    >
-                      <div class="file-preview-left">
-                        <img
-                          v-if="sf.previewUrl"
-                          :src="sf.previewUrl"
-                          :alt="sf.name"
-                          class="file-thumb"
-                        />
-                        <div v-else class="file-thumb">
-                          <span class="material-symbols-rounded">picture_as_pdf</span>
-                        </div>
-                        <div class="file-meta">
-                          <div class="file-name">{{ sf.name }}</div>
-                          <div class="file-size">Siap diupload • {{ formatFileSize(sf.size) }}</div>
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        class="btn btn-ghost btn-icon"
-                        :disabled="saving"
-                        aria-label="Hapus file"
-                        @click="removeStagedFile(idx)"
-                      >
-                        <span class="material-symbols-rounded" style="font-size: 19px;">delete</span>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                <div class="form-group" style="margin-bottom: 0;">
-                  <label class="form-label" for="sablon-catatan">Catatan (Opsional)</label>
-                  <textarea
-                    id="sablon-catatan"
-                    v-model="form.catatan"
-                    class="form-textarea"
-                    placeholder="Contoh: Screen T61, tinta rubber putih 2x naik..."
-                    :disabled="saving"
-                  ></textarea>
-                </div>
-              </div>
-
-              <div class="modal-footer" style="justify-content: space-between; flex-wrap: wrap;">
-                <span class="form-hint" style="margin-right: auto;">{{ uploadProgressText }}</span>
-                <div class="action-group">
-                  <button
-                    type="button"
-                    class="btn btn-secondary"
-                    :disabled="saving"
-                    @click="closeModal"
-                  >
-                    Batal
-                  </button>
-                  <button type="submit" class="btn btn-primary" :disabled="saving">
-                    <span v-if="saving" class="spinner spinner-sm"></span>
-                    <span>
-                      {{ saving ? 'Memproses...' : (editingSablon ? 'Simpan Perubahan' : 'Simpan Sablon') }}
-                    </span>
-                  </button>
-                </div>
-              </div>
-            </form>
-          </div>
-        </div>
-
-        <!-- Modal Galeri Preview File Sablon -->
-        <div
-          v-if="previewModalOpen && previewSablon"
-          class="modal-overlay"
-          role="dialog"
-          aria-modal="true"
-          @click.self="closePreviewModal"
-        >
-          <div class="modal-card modal-lg">
-            <div class="modal-header">
-              <div>
-                <h3 class="modal-title">File Sablon — {{ previewSablon.namaSablon }}</h3>
-                <div class="form-hint">{{ previewSablon.fileSablon.length }} file terlampir</div>
-              </div>
-              <button
-                type="button"
-                class="btn btn-ghost btn-icon"
-                aria-label="Tutup galeri"
-                @click="closePreviewModal"
-              >
-                <span class="material-symbols-rounded">close</span>
-              </button>
-            </div>
-            <div class="modal-body">
-              <div class="file-gallery-grid">
-                <div
-                  v-for="(file, fIdx) in previewSablon.fileSablon"
-                  :key="file.fileId || fIdx"
-                  class="file-gallery-card"
-                >
-                  <div
-                    class="file-gallery-media"
-                    title="Klik untuk memperbesar"
-                    @click="openLightbox(file)"
-                  >
-                    <img
-                      v-if="file.mimeType !== 'application/pdf' && file.previewUrl"
-                      :src="file.previewUrl"
-                      :alt="file.originalName"
-                      referrerpolicy="no-referrer"
-                    />
-                    <span
-                      v-else
-                      class="material-symbols-rounded"
-                      style="font-size: 48px; color: var(--accent-danger);"
-                    >
-                      picture_as_pdf
-                    </span>
-                  </div>
-                  <div class="file-gallery-body">
-                    <div class="file-name" :title="file.originalName">
-                      {{ file.originalName || file.fileName }}
-                    </div>
-                    <div class="file-size">{{ formatFileSize(file.size) }}</div>
-                    <div class="file-gallery-actions">
-                      <button
-                        type="button"
-                        class="btn btn-primary btn-sm"
-                        @click="openLightbox(file)"
-                      >
-                        <span class="material-symbols-rounded" style="font-size: 16px;">zoom_in</span>
-                        <span>Lihat</span>
-                      </button>
-                      <a
-                        v-if="file.viewUrl"
-                        :href="file.viewUrl"
-                        target="_blank"
-                        rel="noopener"
-                        class="btn btn-secondary btn-sm"
-                      >
-                        Drive
-                      </a>
-                      <a
-                        v-if="file.downloadUrl"
-                        :href="file.downloadUrl"
-                        target="_blank"
-                        rel="noopener"
-                        class="btn btn-secondary btn-sm"
-                      >
-                        Unduh
-                      </a>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div class="modal-footer">
-              <button type="button" class="btn btn-secondary" @click="closePreviewModal">
-                Tutup
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <!-- Modal Lightbox Perbesar Gambar / PDF -->
-        <div
-          v-if="lightboxFile"
-          class="modal-overlay lightbox-overlay"
-          role="dialog"
-          aria-modal="true"
-          @click.self="closeLightbox"
-        >
-          <div class="modal-card lightbox-card">
-            <div class="modal-header">
-              <div style="min-width: 0;">
-                <h3 class="modal-title" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                  {{ lightboxFile.originalName || lightboxFile.fileName }}
-                </h3>
-                <div class="form-hint">{{ formatFileSize(lightboxFile.size) }}</div>
-              </div>
-              <button
-                type="button"
-                class="btn btn-ghost btn-icon"
-                aria-label="Tutup tampilan besar"
-                @click="closeLightbox"
-              >
-                <span class="material-symbols-rounded">close</span>
-              </button>
-            </div>
-            <div class="lightbox-body">
-              <img
-                v-if="lightboxFile.mimeType !== 'application/pdf'"
-                :src="getHighResPreviewUrl(lightboxFile)"
-                :alt="lightboxFile.originalName"
-                referrerpolicy="no-referrer"
-                class="lightbox-img"
-              />
-              <iframe
-                v-else
-                :src="lightboxFile.previewUrl"
-                class="lightbox-pdf"
-                title="Preview PDF"
-              ></iframe>
-            </div>
-            <div class="modal-footer">
-              <a
-                v-if="lightboxFile.viewUrl"
-                :href="lightboxFile.viewUrl"
-                target="_blank"
-                rel="noopener"
-                class="btn btn-secondary btn-sm"
-              >
-                Buka di Drive
-              </a>
-              <a
-                v-if="lightboxFile.downloadUrl"
-                :href="lightboxFile.downloadUrl"
-                target="_blank"
-                rel="noopener"
-                class="btn btn-primary btn-sm"
-              >
-                Unduh
-              </a>
-              <button type="button" class="btn btn-secondary btn-sm" @click="closeLightbox">
-                Tutup
-              </button>
-            </div>
-          </div>
-        </div>
+        <file-preview-modal
+          :visible="Boolean(previewSablon)"
+          :title="'File Sablon — ' + (previewSablon ? previewSablon.namaSablon : '')"
+          :subtitle="previewSablon ? ((previewSablon.fileSablon || []).length + ' file terlampir') : ''"
+          :files="previewSablon ? previewSablon.fileSablon : []"
+          @close="closePreviewModal"
+        ></file-preview-modal>
       </div>
     `
   };

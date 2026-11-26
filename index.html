@@ -81,9 +81,13 @@
           :user-email="user.email"
           :user-name="user.nama"
           :user-role="user.role"
+          :current-page="currentPage"
+          :sablon-ai-queue="sablonAiQueue"
           @toggle-sidebar="sidebarOpen = !sidebarOpen"
           @toggle-theme="toggleTheme"
           @logout="requestLogout"
+          @open-sablon-form="openSablonFormFromNavbar"
+          @dismiss-ai-queue="dismissSablonAiQueue"
         ></app-navbar>
 
         <main>
@@ -135,17 +139,40 @@
             v-else-if="currentPage === 'sablon'"
             :sablon-list="sablonList"
             :pesanan-list="pesananList"
+            :ai-config="aiConfig"
             :loading="loadingSablon"
             :drive-ready="driveReady"
             :user-role="user.role"
             :current-user-uid="user.uid"
             :has-more="hasMoreSablon"
             :default-page-size="defaultPageSize"
+            :has-unsaved-drafts="hasUnsavedSablonDrafts"
+            :ai-queue="sablonAiQueue"
             @notify="addToast"
             @request-confirm="openConfirm"
             @go-pesanan="navigatePage('pesanan')"
             @load-more="loadMoreSablon"
+            @open-sablon-form="openCreateSablonPage"
+            @edit-sablon="openEditSablonPage"
           ></sablon-view>
+
+          <sablon-form-view
+            v-else-if="currentPage === 'sablon-form' && user.role !== 'karyawan'"
+            :form-state="sablonFormState"
+            :ai-queue="sablonAiQueue"
+            :pesanan-list="pesananList"
+            :sablon-list="sablonList"
+            :ai-config="aiConfig"
+            :drive-ready="driveReady"
+            :user-role="user.role"
+            @back="navigatePage('sablon')"
+            @go-pesanan="navigatePage('pesanan')"
+            @notify="addToast"
+            @run-ai-single="runSablonAiSingle"
+            @run-ai-all="runSablonAiAll"
+            @stop-ai-queue="stopSablonAiQueue"
+            @saved="onSablonFormSaved"
+          ></sablon-form-view>
 
           <borongan-view
             v-else-if="currentPage === 'borongan'"
@@ -261,6 +288,7 @@
   <script src="./js/services/sablonService.js"></script>
   <script src="./js/services/boronganService.js"></script>
   <script src="./js/services/aiService.js"></script>
+  <script src="./js/services/sablonQueueService.js"></script>
 
   <!-- Vue Components -->
   <script src="./js/components/TablePagination.js"></script>
@@ -272,6 +300,7 @@
   <script src="./js/components/PesananView.js"></script>
   <script src="./js/components/OperasionalView.js"></script>
   <script src="./js/components/SablonView.js"></script>
+  <script src="./js/components/SablonFormView.js"></script>
   <script src="./js/components/BoronganView.js"></script>
   <script src="./js/components/MasterProdukPanel.js"></script>
   <script src="./js/components/MasterExpedisiPanel.js"></script>

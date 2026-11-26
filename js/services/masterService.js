@@ -32,38 +32,6 @@
     return cleaned;
   }
 
-  function normalizeGroupings(rawGroupings, validSides) {
-    if (!Array.isArray(rawGroupings)) return [];
-    var validSet = {};
-    (validSides || []).forEach(function (s) {
-      validSet[String(s).toLowerCase()] = String(s);
-    });
-
-    var result = [];
-    for (var i = 0; i < rawGroupings.length; i++) {
-      var g = rawGroupings[i] || {};
-      var namaGrouping = String(g.namaGrouping || '').trim();
-      var rawSelected = Array.isArray(g.sisi) ? g.sisi : [];
-      var seenSisi = {};
-      var cleanedSisi = [];
-      for (var j = 0; j < rawSelected.length; j++) {
-        var key = String(rawSelected[j] || '').trim().toLowerCase();
-        var canonical = validSet[key];
-        if (canonical && !seenSisi[key]) {
-          seenSisi[key] = true;
-          cleanedSisi.push(canonical);
-        }
-      }
-      if (!namaGrouping || !cleanedSisi.length) continue;
-      result.push({
-        id: String(g.id || '').trim() || 'grp_' + (i + 1),
-        namaGrouping: namaGrouping,
-        sisi: cleanedSisi
-      });
-    }
-    return result;
-  }
-
   function normalizeTemplateSisiList(rawTemplates, legacyNamaSisi) {
     var list = Array.isArray(rawTemplates) ? rawTemplates : [];
     var result = [];
@@ -75,8 +43,7 @@
       result.push({
         id: String(tpl.id || '').trim() || 'tpl_' + (i + 1),
         namaTemplate: namaTemplate,
-        sisiList: sisiList,
-        groupings: normalizeGroupings(tpl.groupings, sisiList)
+        sisiList: sisiList
       });
     }
 
@@ -86,8 +53,7 @@
         result.push({
           id: 'tpl_legacy',
           namaTemplate: 'Default',
-          sisiList: fallbackSides,
-          groupings: []
+          sisiList: fallbackSides
         });
       }
     }
@@ -146,44 +112,10 @@
         throw new Error('Template sisi "' + namaTemplate + '" wajib memiliki minimal 1 sisi.');
       }
 
-      var rawGroupings = Array.isArray(tpl.groupings) ? tpl.groupings : [];
-      var validSet = {};
-      sisiList.forEach(function (s) {
-        validSet[s.toLowerCase()] = s;
-      });
-      var cleanGroupings = [];
-      for (var g = 0; g < rawGroupings.length; g++) {
-        var grp = rawGroupings[g] || {};
-        var gName = String(grp.namaGrouping || '').trim();
-        var gSisi = Array.isArray(grp.sisi)
-          ? grp.sisi
-              .map(function (s) {
-                return validSet[String(s || '').trim().toLowerCase()] || '';
-              })
-              .filter(Boolean)
-          : [];
-        if (!gName) {
-          throw new Error(
-            'Nama grouping ke-' + (g + 1) + ' pada template "' + namaTemplate + '" wajib diisi.'
-          );
-        }
-        if (!gSisi.length) {
-          throw new Error(
-            'Pilih minimal 1 sisi untuk grouping "' + gName + '" pada template "' + namaTemplate + '".'
-          );
-        }
-        cleanGroupings.push({
-          id: String(grp.id || '').trim() || 'grp_' + Date.now() + '_' + g,
-          namaGrouping: gName,
-          sisi: normalizeSisiList(gSisi)
-        });
-      }
-
       cleanTemplates.push({
         id: String(tpl.id || '').trim() || 'tpl_' + Date.now() + '_' + i,
         namaTemplate: namaTemplate,
-        sisiList: sisiList,
-        groupings: cleanGroupings
+        sisiList: sisiList
       });
     }
 
@@ -196,8 +128,7 @@
       cleanTemplates.push({
         id: 'tpl_' + Date.now(),
         namaTemplate: 'Default',
-        sisiList: legacySides,
-        groupings: []
+        sisiList: legacySides
       });
     }
 

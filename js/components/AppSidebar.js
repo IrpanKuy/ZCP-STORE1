@@ -138,7 +138,7 @@
               :key="item.key"
               type="button"
               class="nav-item"
-              :class="{ active: currentPage === item.key }"
+              :class="{ active: currentPage === item.key || (item.key === 'sablon' && currentPage === 'sablon-form') }"
               @click="selectPage(item.key)"
             >
               <span class="nav-item-left">

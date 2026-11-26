@@ -247,7 +247,6 @@
         templateSisiId: o.templateSisiId || '',
         namaTemplateSisi: o.namaTemplateSisi || '',
         namaSisi: Array.isArray(o.namaSisi) ? o.namaSisi : [],
-        sisiGroupings: Array.isArray(o.sisiGroupings) ? o.sisiGroupings : [],
         jumlahProduk: Number(o.jumlahProduk) || 0,
         sisiProgress: o.sisiProgress || {},
         namaExpedisi: o.namaExpedisi || '',
@@ -310,8 +309,8 @@
       '1. `pesanan`: field valid = { namaPemesan, asalPesananId, namaAsalPesanan, produkId, namaProduk, templateSisiId, namaTemplateSisi, namaSisi (array string), jumlahProduk (integer >=1), expedisiId, namaExpedisi, catatan, tanggalMulai (YYYY-MM-DD), tanggalDeadline (YYYY-MM-DD), statusSelesai (boolean) }.\n' +
       '   - Jika user memberi perintah singkat mis. "buatkan pesanan Rompi 13 pcs" tanpa menyebut nama pemesan, isi namaPemesan = "Pelanggan Umum" dan langsung usulkan operasi CREATE (jangan bertanya balik jika produk & jumlah sudah jelas).\n' +
       '   - Cocokkan namaProduk dengan `master_produk` & namaAsalPesanan dengan `master_asal_pesanan` di konteks. Jika cocok dengan produk yang memiliki `templateSisi`, pilih `templateSisiId`/`namaTemplateSisi` yang sesuai (atau template pertama jika tidak disebutkan), dan salin `sisiList`-nya ke `namaSisi`.\n' +
-      '2. `sablon`: field valid = { namaSablon, jumlahPerulangan (integer >=1), perulanganChecks (array boolean), catatan, statusSelesai (boolean), pesananItems: [{ pesananId, namaPemesan, namaProduk, jumlahProduk, sisiQuantities: { [namaSisiAtauGrouping]: integer } }] }.\n' +
-      '3. `master_produk`: field valid = { namaProduk, templateSisi: [{ namaTemplate, sisiList (array string), groupings: [{ namaGrouping, sisi (array string) }] }], namaSisi (array string) }.\n' +
+      '2. `sablon`: field valid = { namaSablon, jumlahPerulangan (integer >=1), perulanganChecks (array boolean), catatan, statusSelesai (boolean), pesananItems: [{ pesananId, namaPemesan, namaProduk, jumlahProduk, sisiQuantities: { [namaSisi]: integer } }] }.\n' +
+      '3. `master_produk`: field valid = { namaProduk, templateSisi: [{ namaTemplate, sisiList (array string) }], namaSisi (array string) }.\n' +
       '4. `master_expedisi`: field valid = { namaExpedisi }.\n' +
       '5. `master_asal_pesanan`: field valid = { namaAsal }.\n' +
       '5. Untuk `UPDATE` dan `DELETE`: DILARANG mengarang `docId`. Gunakan `id` persis dari data konteks di bawah. Jika record yang dimaksud user ambigu atau tidak ditemukan, set `"operations": []` dan jelaskan di `"reply"`.\n' +
@@ -532,7 +531,7 @@
           ? matchedTpl.namaTemplate
           : String(data.namaTemplateSisi || '').trim(),
         namaSisi: namaSisi,
-        sisiGroupings: matchedTpl && Array.isArray(matchedTpl.groupings) ? matchedTpl.groupings.slice() : [],
+        sisiGroupings: [],
         jumlahProduk: qty,
         sisiProgress: sisiProgress,
         fileDesigns: [],
@@ -953,11 +952,88 @@
     await batch.commit();
   }
 
+  function resizeImageForAi(file, maxDim, quality) {
+    var limitDim = Number(maxDim) || 1500;
+    var jpegQuality = Number(quality) || 0.85;
+    var mimeType;
+    try {
+      mimeType = validateChatFile(file);
+    } catch (err) {
+      return Promise.reject(err);
+    }
+
+    if (mimeType === 'application/pdf') {
+      return readChatFile(file);
+    }
+
+    return new Promise(function (resolve) {
+      var objectUrl = URL.createObjectURL(file);
+      var img = new Image();
+      img.onload = function () {
+        try {
+          var w = img.naturalWidth || img.width || 1;
+          var h = img.naturalHeight || img.height || 1;
+          var maxSide = Math.max(w, h);
+          var scale = maxSide > limitDim ? limitDim / maxSide : 1;
+          var targetW = Math.max(1, Math.round(w * scale));
+          var targetH = Math.max(1, Math.round(h * scale));
+
+          var canvas = document.createElement('canvas');
+          canvas.width = targetW;
+          canvas.height = targetH;
+          var ctx = canvas.getContext('2d');
+          if (!ctx) {
+            throw new Error('Canvas 2D tidak tersedia.');
+          }
+          // Beri latar putih agar film sablon PNG transparan tetap terbaca jelas setelah kompresi JPEG
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, targetW, targetH);
+          ctx.drawImage(img, 0, 0, targetW, targetH);
+
+          var dataUrl = canvas.toDataURL('image/jpeg', jpegQuality);
+          var commaIdx = dataUrl.indexOf(',');
+          if (commaIdx === -1) {
+            throw new Error('Gagal mengonversi gambar ke JPEG.');
+          }
+          var base64 = dataUrl.slice(commaIdx + 1);
+          resolve({
+            name: file.name || 'sablon.jpg',
+            mimeType: 'image/jpeg',
+            size: Math.round((base64.length * 3) / 4),
+            originalSize: Number(file.size) || 0,
+            width: targetW,
+            height: targetH,
+            base64: base64
+          });
+        } catch (convErr) {
+          readChatFile(file).then(resolve, function () {
+            resolve(null);
+          });
+        } finally {
+          URL.revokeObjectURL(objectUrl);
+        }
+      };
+      img.onerror = function () {
+        URL.revokeObjectURL(objectUrl);
+        readChatFile(file).then(resolve, function () {
+          resolve(null);
+        });
+      };
+      img.src = objectUrl;
+    }).then(function (res) {
+      if (!res) {
+        return readChatFile(file);
+      }
+      return res;
+    });
+  }
+
   global.ZcpAiService = {
     MAX_AI_LOGS: MAX_AI_LOGS,
     MAX_FILE_SIZE_BYTES: MAX_FILE_SIZE_BYTES,
     ALLOWED_MIME_TYPES: ALLOWED_MIME_TYPES,
     readChatFile: readChatFile,
+    resizeImageForAi: resizeImageForAi,
 
     testGeminiConnection: async function (aiConfig) {
       var endpoint = buildGeminiEndpoint(
@@ -1409,6 +1485,277 @@
             c.collection === 'master_asal_pesanan'
           );
         })
+      };
+    },
+
+    analyzeSablonAutoFill: async function (params) {
+      var aiConfig = params && params.aiConfig;
+      var endpoint = buildGeminiEndpoint(
+        aiConfig && aiConfig.geminiApiUrl,
+        aiConfig && aiConfig.geminiApiKey
+      );
+      var sablonFiles = Array.isArray(params && params.sablonFiles) ? params.sablonFiles : [];
+      var activeOrders = Array.isArray(params && params.activeOrders) ? params.activeOrders : [];
+      var designFilesMap = (params && params.designFilesMap) || {};
+
+      if (!sablonFiles.length) {
+        throw new Error('Upload minimal 1 file sablon terlebih dahulu.');
+      }
+
+      var ordersWithDesignData = [];
+      activeOrders.forEach(function (order) {
+        if (!order || order.statusSelesai) return;
+        var loadedFiles = [];
+        (Array.isArray(order.fileDesigns) ? order.fileDesigns : []).forEach(function (fd) {
+          var entry = fd && fd.fileId ? designFilesMap[fd.fileId] : null;
+          if (entry && entry.base64) {
+            loadedFiles.push({
+              name: fd.originalName || fd.fileName || entry.fileName || 'design',
+              mimeType: entry.mimeType || fd.mimeType || 'image/jpeg',
+              base64: entry.base64
+            });
+          }
+        });
+        if (loadedFiles.length) {
+          ordersWithDesignData.push({
+            order: order,
+            files: loadedFiles
+          });
+        }
+      });
+
+      if (!ordersWithDesignData.length) {
+        throw new Error(
+          'Tidak ada pesanan belum selesai yang memiliki file desain terbaca untuk dicocokkan.'
+        );
+      }
+
+      var parts = [
+        {
+          text:
+            'Berikut adalah FILE SABLON yang diupload oleh user (' +
+            sablonFiles.length +
+            ' file). Hitung jumlah kemunculan setiap desain/logo pada file sablon ini, lalu cocokkan ke gambar desain pesanan yang belum selesai di bagian berikutnya.'
+        }
+      ];
+
+      sablonFiles.forEach(function (sf, idx) {
+        parts.push({
+          text: '[FILE SABLON #' + (idx + 1) + ': ' + (sf.name || 'sablon') + ']'
+        });
+        parts.push({
+          inlineData: {
+            mimeType: sf.mimeType || 'image/png',
+            data: sf.base64
+          }
+        });
+      });
+
+      parts.push({
+        text:
+          '=== DAFTAR PESANAN BELUM SELESAI BESERTA FILE DESAINNYA (' +
+          ordersWithDesignData.length +
+          ' pesanan) ==='
+      });
+
+      var orderById = {};
+      ordersWithDesignData.forEach(function (entry, idx) {
+        var o = entry.order;
+        orderById[o.id] = o;
+        parts.push({
+          text:
+            'PESANAN #' +
+            (idx + 1) +
+            ' | pesananId: "' +
+            o.id +
+            '" | pemesan: "' +
+            (o.namaPemesan || '') +
+            '" | produk: "' +
+            (o.namaProduk || '') +
+            '" | template: "' +
+            (o.namaTemplateSisi || '-') +
+            '" | targetQty: ' +
+            (Number(o.jumlahProduk) || 0) +
+            ' pcs | namaSisi wajib: ' +
+            JSON.stringify(Array.isArray(o.namaSisi) ? o.namaSisi : []) +
+            (o.catatan ? ' | catatan: "' + o.catatan + '"' : '')
+        });
+        entry.files.forEach(function (df, fIdx) {
+          parts.push({
+            text:
+              '  -> Gambar desain ke-' +
+              (fIdx + 1) +
+              ' milik pesananId "' +
+              o.id +
+              '" (' +
+              df.name +
+              '):'
+          });
+          parts.push({
+            inlineData: {
+              mimeType: df.mimeType,
+              data: df.base64
+            }
+          });
+        });
+      });
+
+      var systemPrompt =
+        'Kamu adalah asisten AI vision spesialis produksi konveksi & sablon ZCP STORE.\n' +
+        'Tugasmu:\n' +
+        '1. Analisa FILE SABLON yang diupload: identifikasi setiap desain/logo yang ada di dalam file sablon dan hitung berapa kali masing-masing desain muncul.\n' +
+        '2. Bandingkan secara visual dengan gambar desain milik seluruh pesanan belum selesai yang diberikan.\n' +
+        '3. Tentukan desain di file sablon cocok dengan pesananId mana dan sisi (`namaSisi`) mana.\n' +
+        '4. Jika satu desain yang sama dipakai untuk beberapa sisi pada 1 pesanan (misalnya Payung 4 sisi desain sama dengan total 20 gambar di file sablon), bagilah total kemunculan desain tersebut ke sisi-sisi terkait pada `sisiQuantities` (misal masing-masing 5), dan jelaskan di `reason`.\n' +
+        '5. DILARANG mengarang `pesananId` maupun nama sisi di luar daftar `namaSisi` milik pesanan tersebut. Jika sebuah pesanan tidak cocok dengan gambar sablon, jangan sertakan di `matches`.\n' +
+        '6. Jika ada desain pada file sablon yang tidak cocok dengan pesanan manapun, atau mirip dengan lebih dari 1 pesanan sehingga berpotensi ambigu, tulis penjelasannya di `warnings`.\n\n' +
+        'WAJIB balas HANYA JSON valid dengan struktur persis:\n' +
+        '{\n' +
+        '  "summary": "Ringkasan hasil analisa dalam Bahasa Indonesia",\n' +
+        '  "warnings": ["Peringatan jika ada desain ambigu/tidak cocok (kosongkan [] jika semua jelas)"],\n' +
+        '  "matches": [\n' +
+        '    {\n' +
+        '      "pesananId": "id_pesanan_persis",\n' +
+        '      "sisiQuantities": { "Nama Sisi Persis": 10 },\n' +
+        '      "reason": "Alasan singkat pencocokan & hitungan"\n' +
+        '    }\n' +
+        '  ]\n' +
+        '}';
+
+      var body = {
+        systemInstruction: {
+          parts: [{ text: systemPrompt }]
+        },
+        contents: [
+          {
+            role: 'user',
+            parts: parts
+          }
+        ],
+        generationConfig: {
+          temperature: 0.1,
+          responseMimeType: 'application/json',
+          thinkingConfig: {
+            thinkingBudget: 0
+          }
+        }
+      };
+
+      var json;
+      for (var fbAttempt = 0; fbAttempt < 3; fbAttempt++) {
+        try {
+          json = await callGeminiRaw(endpoint, body);
+          break;
+        } catch (err) {
+          var lowMsg = String((err && err.message) || '').toLowerCase();
+          if (
+            err &&
+            err.status === 400 &&
+            body.generationConfig.thinkingConfig &&
+            (lowMsg.indexOf('thinking') !== -1 ||
+              lowMsg.indexOf('thinkingbudget') !== -1 ||
+              lowMsg.indexOf('thinkingconfig') !== -1)
+          ) {
+            delete body.generationConfig.thinkingConfig;
+            continue;
+          }
+          if (
+            err &&
+            err.status === 400 &&
+            body.generationConfig.responseMimeType &&
+            lowMsg.indexOf('responsemimetype') !== -1
+          ) {
+            delete body.generationConfig.responseMimeType;
+            continue;
+          }
+          throw err;
+        }
+      }
+
+      var rawText = extractCandidateText(json);
+      var parsed = extractJsonFromText(rawText);
+
+      // Normalisasi hasil agar sisiQuantities selalu persis sesuai namaSisi tiap pesanan
+      var mergedByOrder = {};
+      var orderedIds = [];
+      var rawMatches = Array.isArray(parsed && parsed.matches) ? parsed.matches : [];
+
+      rawMatches.forEach(function (m) {
+        if (!m || !m.pesananId) return;
+        var pid = String(m.pesananId).trim();
+        var order = orderById[pid];
+        if (!order) return;
+
+        var validSides = Array.isArray(order.namaSisi) ? order.namaSisi : [];
+        var canonMap = {};
+        validSides.forEach(function (s) {
+          canonMap[String(s).trim().toLowerCase()] = String(s).trim();
+        });
+
+        if (!mergedByOrder[pid]) {
+          var initQty = {};
+          validSides.forEach(function (s) {
+            initQty[s] = 0;
+          });
+          mergedByOrder[pid] = {
+            pesananId: pid,
+            namaPemesan: order.namaPemesan,
+            namaProduk: order.namaProduk,
+            sisiQuantities: initQty,
+            reasonParts: []
+          };
+          orderedIds.push(pid);
+        }
+
+        var sq = m.sisiQuantities && typeof m.sisiQuantities === 'object' ? m.sisiQuantities : {};
+        Object.keys(sq).forEach(function (rawSide) {
+          var canon = canonMap[String(rawSide || '').trim().toLowerCase()];
+          if (!canon) return;
+          var qty = Math.max(0, Math.round(Number(sq[rawSide]) || 0));
+          if (qty > 0) {
+            mergedByOrder[pid].sisiQuantities[canon] += qty;
+          }
+        });
+
+        if (m.reason) {
+          mergedByOrder[pid].reasonParts.push(String(m.reason).trim());
+        }
+      });
+
+      var normalizedMatches = orderedIds
+        .map(function (pid) {
+          var item = mergedByOrder[pid];
+          var total = Object.keys(item.sisiQuantities).reduce(function (sum, k) {
+            return sum + (Number(item.sisiQuantities[k]) || 0);
+          }, 0);
+          if (total <= 0) return null;
+          return {
+            pesananId: item.pesananId,
+            namaPemesan: item.namaPemesan,
+            namaProduk: item.namaProduk,
+            sisiQuantities: item.sisiQuantities,
+            totalQty: total,
+            reason: item.reasonParts.join('; ')
+          };
+        })
+        .filter(Boolean);
+
+      var warnings = Array.isArray(parsed && parsed.warnings)
+        ? parsed.warnings
+            .map(function (w) {
+              return String(w || '').trim();
+            })
+            .filter(Boolean)
+        : [];
+
+      return {
+        summary:
+          String((parsed && parsed.summary) || '').trim() ||
+          (normalizedMatches.length
+            ? 'Berhasil mencocokkan ' + normalizedMatches.length + ' pesanan dari file sablon.'
+            : 'Tidak ditemukan desain pesanan yang cocok pada file sablon.'),
+        warnings: warnings,
+        matches: normalizedMatches
       };
     }
   };

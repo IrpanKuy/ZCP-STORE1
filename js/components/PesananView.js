@@ -75,9 +75,7 @@
           removedFileIds: [],
           stagedFiles: []
         },
-        previewModalOpen: false,
-        previewOrder: null,
-        lightboxFile: null
+        previewOrder: null
       };
     },
     watch: {
@@ -252,11 +250,7 @@
         }).length;
       }
     },
-    mounted: function () {
-      window.addEventListener('keydown', this.handleKeydown);
-    },
     beforeUnmount: function () {
-      window.removeEventListener('keydown', this.handleKeydown);
       this.revokeAllStagedPreviews();
     },
     methods: {
@@ -469,27 +463,17 @@
       },
       openPreviewModal: function (order) {
         this.previewOrder = order;
-        this.previewModalOpen = true;
+      },
+      previewSingleExistingFile: function (file) {
+        if (!file) return;
+        this.previewOrder = {
+          namaPemesan: this.form.namaPemesan || 'Preview File',
+          namaProduk: 'File Design',
+          fileDesigns: [file]
+        };
       },
       closePreviewModal: function () {
-        this.lightboxFile = null;
-        this.previewModalOpen = false;
         this.previewOrder = null;
-      },
-      openLightbox: function (file) {
-        this.lightboxFile = file;
-      },
-      closeLightbox: function () {
-        this.lightboxFile = null;
-      },
-      getHighResPreviewUrl: function (file) {
-        if (!file) return '';
-        return file.previewUrl || (file.fileId ? 'https://drive.google.com/thumbnail?id=' + file.fileId + '&sz=w1000' : '');
-      },
-      handleKeydown: function (event) {
-        if (event.key === 'Escape' && this.lightboxFile) {
-          this.closeLightbox();
-        }
       },
       savePesanan: async function () {
         this.formError = '';
@@ -595,15 +579,7 @@
             templateSisiId: tpl.id === '__snapshot_tpl__' ? '' : tpl.id,
             namaTemplateSisi: tpl.namaTemplate,
             namaSisi: tpl.sisiList.slice(),
-            sisiGroupings: Array.isArray(tpl.groupings)
-              ? tpl.groupings.map(function (g) {
-                  return {
-                    id: g.id,
-                    namaGrouping: g.namaGrouping,
-                    sisi: Array.isArray(g.sisi) ? g.sisi.slice() : []
-                  };
-                })
-              : [],
+            sisiGroupings: [],
             jumlahProduk: jumlah,
             fileDesigns: mergedFiles,
             expedisiId: expedisiId,
@@ -876,12 +852,6 @@
                         class="chip"
                       >
                         {{ sisi }}
-                      </span>
-                    </div>
-                    <div v-if="order.sisiGroupings && order.sisiGroupings.length" class="chips-wrap" style="margin-top: 5px;">
-                      <span v-for="grp in order.sisiGroupings" :key="grp.id" class="grouping-chip">
-                        <span class="material-symbols-rounded" style="font-size: 13px;">workspaces</span>
-                        <span>{{ grp.namaGrouping }}: {{ grp.sisi.join(' + ') }}</span>
                       </span>
                     </div>
                   </td>
@@ -1160,7 +1130,7 @@
                   </div>
                 </div>
 
-                <!-- Preview Sisi & Grouping dari Template Terpilih -->
+                <!-- Preview Sisi dari Template Terpilih -->
                 <div v-if="selectedTemplateObj" class="template-preview-box">
                   <div class="template-preview-head">
                     <strong>Sisi pada Template "{{ selectedTemplateObj.namaTemplate }}"</strong>
@@ -1170,24 +1140,6 @@
                     <span v-for="(sisi, sIdx) in selectedTemplateObj.sisiList" :key="sIdx" class="chip">
                       {{ sisi }}
                     </span>
-                  </div>
-                  <div
-                    v-if="selectedTemplateObj.groupings && selectedTemplateObj.groupings.length"
-                    style="margin-top: 8px;"
-                  >
-                    <div class="form-hint" style="margin-bottom: 4px;">
-                      Grouping sablon aktif (otomatis digabung saat input Manajemen Sablon):
-                    </div>
-                    <div class="chips-wrap">
-                      <span
-                        v-for="grp in selectedTemplateObj.groupings"
-                        :key="grp.id"
-                        class="grouping-chip"
-                      >
-                        <span class="material-symbols-rounded" style="font-size: 13px;">workspaces</span>
-                        <span>{{ grp.namaGrouping }}: {{ grp.sisi.join(' + ') }}</span>
-                      </span>
-                    </div>
                   </div>
                 </div>
 
@@ -1255,15 +1207,13 @@
                         </div>
                       </div>
                       <div class="action-group">
-                        <a
-                          v-if="ef.viewUrl"
-                          :href="ef.viewUrl"
-                          target="_blank"
-                          rel="noopener"
+                        <button
+                          type="button"
                           class="btn btn-secondary btn-sm"
+                          @click="previewSingleExistingFile(ef)"
                         >
                           Lihat
-                        </a>
+                        </button>
                         <button
                           type="button"
                           class="btn btn-sm"
@@ -1351,165 +1301,13 @@
           </div>
         </div>
 
-        <!-- Modal Galeri Preview File Design -->
-        <div
-          v-if="previewModalOpen && previewOrder"
-          class="modal-overlay"
-          role="dialog"
-          aria-modal="true"
-          @click.self="closePreviewModal"
-        >
-          <div class="modal-card modal-lg">
-            <div class="modal-header">
-              <div>
-                <h3 class="modal-title">File Design — {{ previewOrder.namaPemesan }}</h3>
-                <div class="form-hint">{{ previewOrder.namaProduk }} • {{ previewOrder.fileDesigns.length }} file</div>
-              </div>
-              <button
-                type="button"
-                class="btn btn-ghost btn-icon"
-                aria-label="Tutup galeri"
-                @click="closePreviewModal"
-              >
-                <span class="material-symbols-rounded">close</span>
-              </button>
-            </div>
-            <div class="modal-body">
-              <div class="file-gallery-grid">
-                <div
-                  v-for="(file, fIdx) in previewOrder.fileDesigns"
-                  :key="file.fileId || fIdx"
-                  class="file-gallery-card"
-                >
-                  <div
-                    class="file-gallery-media"
-                    title="Klik untuk memperbesar"
-                    @click="openLightbox(file)"
-                  >
-                    <img
-                      v-if="file.mimeType !== 'application/pdf' && file.previewUrl"
-                      :src="file.previewUrl"
-                      :alt="file.originalName"
-                      referrerpolicy="no-referrer"
-                    />
-                    <span
-                      v-else
-                      class="material-symbols-rounded"
-                      style="font-size: 48px; color: var(--accent-danger);"
-                    >
-                      picture_as_pdf
-                    </span>
-                  </div>
-                  <div class="file-gallery-body">
-                    <div class="file-name" :title="file.originalName">
-                      {{ file.originalName || file.fileName }}
-                    </div>
-                    <div class="file-size">{{ formatFileSize(file.size) }}</div>
-                    <div class="file-gallery-actions">
-                      <button
-                        type="button"
-                        class="btn btn-primary btn-sm"
-                        @click="openLightbox(file)"
-                      >
-                        <span class="material-symbols-rounded" style="font-size: 16px;">zoom_in</span>
-                        <span>Lihat</span>
-                      </button>
-                      <a
-                        v-if="file.viewUrl"
-                        :href="file.viewUrl"
-                        target="_blank"
-                        rel="noopener"
-                        class="btn btn-secondary btn-sm"
-                      >
-                        Drive
-                      </a>
-                      <a
-                        v-if="file.downloadUrl"
-                        :href="file.downloadUrl"
-                        target="_blank"
-                        rel="noopener"
-                        class="btn btn-secondary btn-sm"
-                      >
-                        Unduh
-                      </a>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div class="modal-footer">
-              <button type="button" class="btn btn-secondary" @click="closePreviewModal">
-                Tutup
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <!-- Modal Lightbox Perbesar Gambar / PDF -->
-        <div
-          v-if="lightboxFile"
-          class="modal-overlay lightbox-overlay"
-          role="dialog"
-          aria-modal="true"
-          @click.self="closeLightbox"
-        >
-          <div class="modal-card lightbox-card">
-            <div class="modal-header">
-              <div style="min-width: 0;">
-                <h3 class="modal-title" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                  {{ lightboxFile.originalName || lightboxFile.fileName }}
-                </h3>
-                <div class="form-hint">{{ formatFileSize(lightboxFile.size) }}</div>
-              </div>
-              <button
-                type="button"
-                class="btn btn-ghost btn-icon"
-                aria-label="Tutup tampilan besar"
-                @click="closeLightbox"
-              >
-                <span class="material-symbols-rounded">close</span>
-              </button>
-            </div>
-            <div class="lightbox-body">
-              <img
-                v-if="lightboxFile.mimeType !== 'application/pdf'"
-                :src="getHighResPreviewUrl(lightboxFile)"
-                :alt="lightboxFile.originalName"
-                referrerpolicy="no-referrer"
-                class="lightbox-img"
-              />
-              <iframe
-                v-else
-                :src="lightboxFile.previewUrl"
-                class="lightbox-pdf"
-                title="Preview PDF"
-              ></iframe>
-            </div>
-            <div class="modal-footer">
-              <a
-                v-if="lightboxFile.viewUrl"
-                :href="lightboxFile.viewUrl"
-                target="_blank"
-                rel="noopener"
-                class="btn btn-secondary btn-sm"
-              >
-                Buka di Drive
-              </a>
-              <a
-                v-if="lightboxFile.downloadUrl"
-                :href="lightboxFile.downloadUrl"
-                target="_blank"
-                rel="noopener"
-                class="btn btn-primary btn-sm"
-              >
-                Unduh
-              </a>
-              <button type="button" class="btn btn-secondary btn-sm" @click="closeLightbox">
-                Tutup
-              </button>
-            </div>
-          </div>
-        </div>
+        <file-preview-modal
+          :visible="Boolean(previewOrder)"
+          :title="'File Design — ' + (previewOrder ? previewOrder.namaPemesan : '')"
+          :subtitle="previewOrder ? (previewOrder.namaProduk + ' • ' + (previewOrder.fileDesigns || []).length + ' file') : ''"
+          :files="previewOrder ? previewOrder.fileDesigns : []"
+          @close="closePreviewModal"
+        ></file-preview-modal>
       </div>
     `
   };

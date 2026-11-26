@@ -131,6 +131,10 @@ function doPost(e) {
       return handleDelete(payload);
     }
 
+    if (action === 'getFilesBase64' || action === 'getFileBase64') {
+      return handleGetFilesBase64(payload);
+    }
+
     return jsonResponse({ success: false, error: 'Action "' + action + '" tidak dikenali.' });
   } catch (err) {
     return jsonResponse({
@@ -217,6 +221,123 @@ function handleDelete(payload) {
   return jsonResponse({
     success: true,
     deletedFileId: fileId
+  });
+}
+
+/**
+ * Mengambil isi file Google Drive dalam format base64 (untuk analisa gambar AI).
+ * Secara default menggunakan UrlFetchApp.fetchAll() terhadap thumbnail sz=w400 agar paralel & cepat,
+ * dengan fallback otomatis ke DriveApp.getFileById() jika gagal atau jika mode === 'original'.
+ */
+function handleGetFilesBase64(payload) {
+  var rawIds = [];
+  if (payload && Array.isArray(payload.fileIds)) {
+    rawIds = payload.fileIds;
+  } else if (payload && payload.fileId) {
+    rawIds = [payload.fileId];
+  }
+
+  var seen = {};
+  var fileIds = [];
+  for (var i = 0; i < rawIds.length && fileIds.length < 40; i++) {
+    var cleanId = String(rawIds[i] || '').trim();
+    if (cleanId && !seen[cleanId]) {
+      seen[cleanId] = true;
+      fileIds.push(cleanId);
+    }
+  }
+
+  if (!fileIds.length) {
+    return jsonResponse({
+      success: false,
+      error: 'fileIds wajib diisi untuk membaca file dari Google Drive.'
+    });
+  }
+
+  var mode = payload && payload.mode === 'original' ? 'original' : 'thumb';
+  var rawThumb = payload && typeof payload.thumbSize === 'string' ? payload.thumbSize.trim() : '';
+  var thumbSize = /^w\d{2,4}$/.test(rawThumb) ? rawThumb : 'w400';
+
+  var MAX_AI_READ_BYTES = 8 * 1024 * 1024;
+  var filesMap = {};
+  var errorsMap = {};
+  var handled = {};
+
+  // Ambil thumbnail paralel lewat UrlFetchApp.fetchAll() agar tidak sequential ke DriveApp
+  if (mode !== 'original') {
+    var requests = [];
+    for (var r = 0; r < fileIds.length; r++) {
+      requests.push({
+        url: 'https://drive.google.com/thumbnail?id=' + encodeURIComponent(fileIds[r]) + '&sz=' + thumbSize,
+        method: 'get',
+        muteHttpExceptions: true,
+        followRedirects: true
+      });
+    }
+
+    try {
+      var responses = UrlFetchApp.fetchAll(requests);
+      for (var k = 0; k < fileIds.length; k++) {
+        var tfid = fileIds[k];
+        var resp = responses && responses[k];
+        if (!resp || resp.getResponseCode() !== 200) continue;
+
+        var headers = resp.getHeaders() || {};
+        var contentType = String(headers['Content-Type'] || headers['content-type'] || '');
+        if (contentType.toLowerCase().indexOf('image/') !== 0) continue;
+
+        var thumbBytes = resp.getContent();
+        if (thumbBytes && thumbBytes.length > 0 && thumbBytes.length <= MAX_AI_READ_BYTES) {
+          filesMap[tfid] = {
+            fileId: tfid,
+            fileName: '',
+            mimeType: contentType.split(';')[0].trim(),
+            size: thumbBytes.length,
+            base64: Utilities.base64Encode(thumbBytes),
+            mode: 'thumb'
+          };
+          handled[tfid] = true;
+        }
+      }
+    } catch (fetchAllErr) {
+      // Abaikan error fetchAll massal; lanjutkan fallback DriveApp per file
+    }
+  }
+
+  for (var j = 0; j < fileIds.length; j++) {
+    var fid = fileIds[j];
+    if (handled[fid]) continue;
+    try {
+      var file = DriveApp.getFileById(fid);
+      if (file.isTrashed()) {
+        errorsMap[fid] = 'File sudah berada di Trash.';
+        continue;
+      }
+      var size = file.getSize();
+      if (size > MAX_AI_READ_BYTES) {
+        errorsMap[fid] = 'Ukuran file melebihi batas baca AI (8 MB).';
+        continue;
+      }
+      var blob = file.getBlob();
+      var bytes = blob.getBytes();
+      var mimeType = blob.getContentType() || file.getMimeType() || 'image/jpeg';
+      filesMap[fid] = {
+        fileId: fid,
+        fileName: file.getName(),
+        mimeType: mimeType,
+        size: bytes.length,
+        base64: Utilities.base64Encode(bytes),
+        mode: 'original'
+      };
+    } catch (err) {
+      errorsMap[fid] = err && err.message ? err.message : 'Gagal membaca file Drive.';
+    }
+  }
+
+  return jsonResponse({
+    success: true,
+    files: filesMap,
+    errors: errorsMap
   });
 }
 

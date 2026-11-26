@@ -88,63 +88,21 @@
 
   function buildOrderSablonSlots(order) {
     var orderSides = Array.isArray(order && order.namaSisi) ? order.namaSisi : [];
-    var sideCanonical = {};
-    orderSides.forEach(function (s) {
-      var clean = String(s || '').trim();
-      if (clean) sideCanonical[clean.toLowerCase()] = clean;
-    });
-
-    var groupings = Array.isArray(order && order.sisiGroupings) ? order.sisiGroupings : [];
-    var groupedUsed = {};
+    var seen = {};
     var slots = [];
-    var usedKeys = {};
-
-    groupings.forEach(function (grp, idx) {
-      var members = [];
-      var seenMember = {};
-      (Array.isArray(grp && grp.sisi) ? grp.sisi : []).forEach(function (s) {
-        var lower = String(s || '').trim().toLowerCase();
-        var canon = sideCanonical[lower];
-        if (canon && !seenMember[lower]) {
-          seenMember[lower] = true;
-          members.push(canon);
-          groupedUsed[lower] = true;
-        }
-      });
-      if (!members.length) return;
-
-      var baseLabel = members.join(' + ');
-      var key = baseLabel;
-      if (usedKeys[key]) {
-        key = baseLabel + ' (' + (grp.namaGrouping || 'Grup ' + (idx + 1)) + ')';
-      }
-      usedKeys[key] = true;
-      slots.push({
-        key: key,
-        label: baseLabel,
-        isGroup: members.length > 1,
-        namaGrouping: String(grp.namaGrouping || '').trim(),
-        sides: members
-      });
-    });
 
     orderSides.forEach(function (side) {
       var clean = String(side || '').trim();
-      if (!clean) return;
-      if (!groupedUsed[clean.toLowerCase()]) {
-        var key = clean;
-        if (usedKeys[key]) {
-          key = clean + ' (Sisi)';
-        }
-        usedKeys[key] = true;
-        slots.push({
-          key: key,
-          label: clean,
-          isGroup: false,
-          namaGrouping: '',
-          sides: [clean]
-        });
-      }
+      var lower = clean.toLowerCase();
+      if (!clean || seen[lower]) return;
+      seen[lower] = true;
+      slots.push({
+        key: clean,
+        label: clean,
+        isGroup: false,
+        namaGrouping: '',
+        sides: [clean]
+      });
     });
 
     return slots;
