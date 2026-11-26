@@ -4,7 +4,7 @@
 (function (global) {
   'use strict';
 
-  var MAX_FILE_SIZE_BYTES = 15 * 1024 * 1024; // 15 MB
+  var MAX_FILE_SIZE_BYTES = 75 * 1024 * 1024; // 75 MB
   var ALLOWED_MIME_TYPES = ['image/png', 'image/jpeg', 'application/pdf'];
   var fileBase64Cache = {};
 
@@ -127,7 +127,7 @@
     }
     if (file.size > MAX_FILE_SIZE_BYTES) {
       throw new Error(
-        'Ukuran file "' + file.name + '" melebihi batas maksimal 15 MB.'
+        'Ukuran file "' + file.name + '" melebihi batas maksimal 75 MB.'
       );
     }
     return true;

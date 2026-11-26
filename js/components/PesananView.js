@@ -1177,7 +1177,7 @@
                       Klik atau seret file desain ke sini
                     </div>
                     <div class="upload-dropzone-sub">
-                      Mendukung PNG, JPG/JPEG, PDF (maks. 15 MB per file) — disimpan ke Google Drive
+                      Mendukung PNG, JPG/JPEG, PDF (maks. 75 MB per file) — disimpan ke Google Drive
                     </div>
                   </div>
 

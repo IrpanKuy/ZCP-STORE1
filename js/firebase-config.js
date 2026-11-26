@@ -25,7 +25,7 @@
   // TEMPEL URL GOOGLE APPS SCRIPT (GAS_URL) HASIL DEPLOY code.gs DI BAWAH INI
   // =========================================================================
   const gasConfig = {
-    gasUrl: 'https://script.google.com/macros/s/AKfycbxsw-DV-86TYQh2yNrGfxc02f77b2Isd16nOlD65DXwSUqh3j3XlLWkZ7hR-9vRfcufRQ/exec', // Contoh: 'https://script.google.com/macros/s/AKfycb.../exec'
+    gasUrl: 'https://script.google.com/macros/s/AKfycbxYkNbeeE80s7lb3nIMjleRIS5bPljz-LtFSet4c2V0Dbh3mzxQl6AaRvF6agD_68Zf8w/exec', // Contoh: 'https://script.google.com/macros/s/AKfycb.../exec'
     apiSecret: '' // Opsional: samakan dengan API_SECRET di code.gs jika diaktifkan
   };
 

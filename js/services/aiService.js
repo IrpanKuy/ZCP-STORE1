@@ -6,7 +6,7 @@
 
   var AI_LOGS_COLLECTION = 'ai_change_logs';
   var MAX_AI_LOGS = 20;
-  var MAX_FILE_SIZE_BYTES = 15 * 1024 * 1024;
+  var MAX_FILE_SIZE_BYTES = 75 * 1024 * 1024;
   var ALLOWED_MIME_TYPES = ['image/png', 'image/jpeg', 'application/pdf'];
   var ALLOWED_COLLECTIONS = [
     'pesanan',
@@ -60,7 +60,7 @@
       );
     }
     if (file.size > MAX_FILE_SIZE_BYTES) {
-      throw new Error('Ukuran "' + file.name + '" melebihi batas maksimal 15 MB.');
+      throw new Error('Ukuran "' + file.name + '" melebihi batas maksimal 75 MB.');
     }
     return mimeType;
   }

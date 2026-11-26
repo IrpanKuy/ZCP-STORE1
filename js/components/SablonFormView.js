@@ -858,7 +858,7 @@
                   <span class="material-symbols-rounded">cloud_upload</span>
                   <div class="upload-dropzone-title">Klik atau seret file sablon ke sini</div>
                   <div class="upload-dropzone-sub">
-                    Support PNG, JPG/JPEG, PDF (maks. 15 MB per file) — disimpan ke Google Drive
+                    Support PNG, JPG/JPEG, PDF (maks. 75 MB per file) — disimpan ke Google Drive
                   </div>
                 </div>
 
