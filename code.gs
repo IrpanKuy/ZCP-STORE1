@@ -26,8 +26,8 @@ var ROOT_FOLDER_NAME = 'ZCP_STORE_FILES';
 // Batas usia file sebelum dihapus otomatis (1 bulan = 30 hari)
 var RETENTION_DAYS = 30;
 
-// Batas ukuran maksimal file (75 MB) dan tipe MIME yang diizinkan
-var MAX_FILE_SIZE_BYTES = 75 * 1024 * 1024;
+// Batas ukuran maksimal file (15 MB) dan tipe MIME yang diizinkan
+var MAX_FILE_SIZE_BYTES = 15 * 1024 * 1024;
 var ALLOWED_MIME_TYPES = ['image/png', 'image/jpeg', 'application/pdf'];
 
 // Opsional: Token rahasia tambahan. Jika diisi, samakan nilainya dengan gasConfig.apiSecret di js/firebase-config.js
@@ -168,7 +168,7 @@ function handleUpload(payload) {
   if (bytes.length > MAX_FILE_SIZE_BYTES) {
     return jsonResponse({
       success: false,
-      error: 'Ukuran file melebihi batas maksimal 75 MB.'
+      error: 'Ukuran file melebihi batas maksimal 15 MB.'
     });
   }
 

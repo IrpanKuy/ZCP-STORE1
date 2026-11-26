@@ -9,10 +9,10 @@ service firebase.storage {
       // && request.auth.token.email in ['admin@zcpstore.com'];
     }
 
-    // Validasi tipe file (PNG, JPG/JPEG, PDF) dan ukuran maksimal 75 MB
+    // Validasi tipe file (PNG, JPG/JPEG, PDF) dan ukuran maksimal 15 MB
     function isValidFile() {
       return request.resource != null
-        && request.resource.size <= 75 * 1024 * 1024
+        && request.resource.size < 15 * 1024 * 1024
         && request.resource.contentType.matches('image/png|image/jpeg|application/pdf');
     }
 

@@ -7,6 +7,7 @@
     pesanan: 'Pesanan',
     sablon: 'Manajemen Sablon',
     master_produk: 'Master Produk',
+    master_kategori_produk: 'Master Kategori Produk',
     master_expedisi: 'Master Expedisi',
     master_asal_pesanan: 'Master Asal Pesanan'
   };
@@ -21,6 +22,7 @@
     namaPemesan: 'Nama Pemesan',
     namaAsalPesanan: 'Asal Pesanan',
     namaProduk: 'Produk',
+    namaKategori: 'Kategori Produk',
     namaTemplateSisi: 'Template Sisi',
     namaSisi: 'Daftar Sisi',
     jumlahProduk: 'Jumlah (pcs)',
@@ -28,6 +30,7 @@
     namaAsal: 'Nama Asal Pesanan',
     templateSisi: 'Template Sisi',
     catatan: 'Catatan',
+    anggapSablonSelesai: 'Anggap Sablon Selesai',
     tanggalMulai: 'Tanggal Mulai',
     tanggalDeadline: 'Deadline',
     statusSelesai: 'Status Selesai',
@@ -49,6 +52,12 @@
       },
       driveReady: { type: Boolean, default: false },
       produkList: {
+        type: Array,
+        default: function () {
+          return [];
+        }
+      },
+      kategoriProdukList: {
         type: Array,
         default: function () {
           return [];
@@ -369,6 +378,7 @@
             history: historySnapshot,
             storeContext: {
               produkList: this.produkList,
+              kategoriProdukList: this.kategoriProdukList,
               expedisiList: this.expedisiList,
               asalPesananList: this.asalPesananList,
               pesananList: this.pesananList,
@@ -1067,7 +1077,7 @@
                       {{
                         driveReady
                           ? 'File akan diunggah ke Google Drive dan otomatis tertaut di tombol Lihat File.'
-                          : 'Google Apps Script URL (gasUrl) belum dikonfigurasi, file hanya dibaca oleh AI.'
+                          : 'Google Drive API belum dikonfigurasi di menu Pengaturan, file hanya dibaca oleh AI.'
                       }}
                     </div>
                   </div>

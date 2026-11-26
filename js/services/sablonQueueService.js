@@ -308,7 +308,12 @@
     var skippedFullCount = 0;
 
     orders.forEach(function (order) {
-      if (!order || order.statusSelesai) return;
+      if (!order || order.statusSelesai || order.anggapSablonSelesai) {
+        if (order && !order.statusSelesai && order.anggapSablonSelesai && Array.isArray(order.fileDesigns) && order.fileDesigns.length > 0) {
+          skippedFullCount += 1;
+        }
+        return;
+      }
       if (!Array.isArray(order.fileDesigns) || order.fileDesigns.length === 0) return;
 
       var targetQty = Number(order.jumlahProduk) || 0;
@@ -418,7 +423,7 @@
     if (!driveReady) {
       if (global.ZcpAlert) {
         global.ZcpAlert.warning(
-          'Google Apps Script URL (gasUrl) belum dikonfigurasi sehingga file desain pesanan dari Google Drive belum dapat dibaca.'
+          'Google Drive API belum dikonfigurasi di menu Pengaturan sehingga file desain pesanan dari Google Drive belum dapat dibaca.'
         );
       }
       return;
@@ -900,6 +905,226 @@
     aiQueue.dismissedFromNavbar = true;
   }
 
+  // =========================================================================
+  // Background Save Queue untuk Upload File Besar & Simpan Data Sablon
+  // =========================================================================
+  var saveJobs = Vue.reactive([]);
+  var saveJobSeq = 0;
+  var saveWorkerRunning = false;
+  var saveAutoDismissTimers = {};
+
+  function hasActiveSaveJobs() {
+    return saveJobs.some(function (j) {
+      return j && (j.status === 'queued' || j.status === 'running');
+    });
+  }
+
+  function isSablonIdInSaveQueue(sablonId) {
+    if (!sablonId) return false;
+    return saveJobs.some(function (j) {
+      return (
+        j &&
+        (j.status === 'queued' || j.status === 'running') &&
+        j.editingSablonId === sablonId
+      );
+    });
+  }
+
+  function clearSaveJobTimer(jobId) {
+    if (saveAutoDismissTimers[jobId]) {
+      clearTimeout(saveAutoDismissTimers[jobId]);
+      delete saveAutoDismissTimers[jobId];
+    }
+  }
+
+  function dismissSaveJob(jobId) {
+    clearSaveJobTimer(jobId);
+    for (var i = 0; i < saveJobs.length; i++) {
+      if (saveJobs[i].id === jobId) {
+        if (saveJobs[i].status === 'queued' || saveJobs[i].status === 'running') {
+          return;
+        }
+        saveJobs.splice(i, 1);
+        return;
+      }
+    }
+  }
+
+  function buildSaveJobTitle(mode, items) {
+    var list = Array.isArray(items) ? items : [];
+    var first = list[0] ? list[0].namaSablon : 'Sablon';
+    if (mode === 'edit') {
+      return 'Memperbarui ' + first;
+    }
+    if (list.length > 1) {
+      return 'Menyimpan ' + list.length + ' Sablon (' + first + ', ...)';
+    }
+    return 'Menyimpan ' + first;
+  }
+
+  function enqueueSaveJob(jobPayload) {
+    var payload = jobPayload || {};
+    var items = Array.isArray(payload.items) ? payload.items : [];
+    var mode = payload.mode === 'edit' ? 'edit' : 'create';
+    var editingSablon = payload.editingSablon || null;
+    var jobId = 'save_job_' + ++saveJobSeq;
+    var hasActive = hasActiveSaveJobs();
+
+    var job = Vue.reactive({
+      id: jobId,
+      mode: mode,
+      editingSablonId: (editingSablon && editingSablon.id) || '',
+      editingSablon: editingSablon,
+      driveReady: Boolean(payload.driveReady),
+      items: items,
+      title: buildSaveJobTitle(mode, items),
+      status: 'queued',
+      stageText: hasActive ? 'Menunggu antrian simpan...' : 'Menyiapkan proses simpan...',
+      percent: 0,
+      currentItem: 0,
+      totalItems: items.length,
+      errorMessage: '',
+      createdAt: Date.now()
+    });
+
+    saveJobs.push(job);
+    processSaveQueue();
+    return job;
+  }
+
+  async function processSaveQueue() {
+    if (saveWorkerRunning) return;
+    saveWorkerRunning = true;
+
+    try {
+      while (true) {
+        var nextJob = null;
+        for (var i = 0; i < saveJobs.length; i++) {
+          if (saveJobs[i] && saveJobs[i].status === 'queued') {
+            nextJob = saveJobs[i];
+            break;
+          }
+        }
+        if (!nextJob) break;
+
+        nextJob.status = 'running';
+        nextJob.percent = 3;
+        nextJob.stageText = 'Memulai proses simpan...';
+
+        try {
+          var total = Math.max(1, nextJob.items.length);
+          for (var k = 0; k < nextJob.items.length; k++) {
+            var item = nextJob.items[k];
+            nextJob.currentItem = k + 1;
+            var basePct = (k / total) * 100;
+            var spanPct = 100 / total;
+            var prefixLabel =
+              total > 1 ? '[' + (k + 1) + '/' + total + ' ' + item.namaSablon + '] ' : '';
+
+            var uploadedFiles = [];
+            if (Array.isArray(item.rawFiles) && item.rawFiles.length > 0) {
+              nextJob.stageText = prefixLabel + 'Mengunggah file sablon ke Google Drive...';
+              uploadedFiles = await global.ZcpDriveService.uploadMultipleFiles(
+                item.rawFiles,
+                'sablon',
+                function (prog) {
+                  var filePct = Number(prog.percent) || 0;
+                  var fileFraction =
+                    (prog.current - 1 + filePct / 100) / Math.max(1, prog.total);
+                  nextJob.percent = Math.min(
+                    99,
+                    Math.max(4, Math.round(basePct + fileFraction * spanPct * 0.85))
+                  );
+                  nextJob.stageText =
+                    prefixLabel +
+                    'Upload file ' +
+                    prog.current +
+                    '/' +
+                    prog.total +
+                    ': ' +
+                    prog.fileName +
+                    ' (' +
+                    filePct +
+                    '%)';
+                }
+              );
+            }
+
+            nextJob.stageText = 'Menyimpan "' + item.namaSablon + '" ke database...';
+            nextJob.percent = Math.min(99, Math.max(5, Math.round(basePct + spanPct * 0.9)));
+
+            var mergedFiles = (Array.isArray(item.keptExistingFiles)
+              ? item.keptExistingFiles
+              : []
+            ).concat(uploadedFiles);
+
+            var sablonPayload = {
+              namaSablon: item.namaSablon,
+              pesananItems: item.pesananItems,
+              jumlahPerulangan: item.jumlahPerulangan,
+              fileSablon: mergedFiles,
+              catatan: item.catatan
+            };
+
+            if (nextJob.mode === 'edit' && nextJob.editingSablon) {
+              await global.ZcpSablonService.updateSablon(
+                nextJob.editingSablon.id,
+                sablonPayload,
+                nextJob.editingSablon
+              );
+
+              if (nextJob.driveReady && Array.isArray(item.removedFileIds) && item.removedFileIds.length) {
+                for (var r = 0; r < item.removedFileIds.length; r++) {
+                  try {
+                    await global.ZcpDriveService.deleteFile(item.removedFileIds[r]);
+                  } catch (e) {
+                    // Best-effort cleanup
+                  }
+                }
+              }
+            } else {
+              await global.ZcpSablonService.addSablon(sablonPayload);
+            }
+
+            nextJob.percent = Math.round(((k + 1) / total) * 100);
+          }
+
+          nextJob.status = 'done';
+          nextJob.percent = 100;
+          nextJob.stageText =
+            nextJob.mode === 'edit'
+              ? 'Perubahan data sablon berhasil disimpan.'
+              : nextJob.totalItems > 1
+              ? nextJob.totalItems + ' data sablon berhasil disimpan.'
+              : 'Data sablon berhasil disimpan ke Manajemen Sablon.';
+
+          (function (finishedId) {
+            clearSaveJobTimer(finishedId);
+            saveAutoDismissTimers[finishedId] = setTimeout(function () {
+              dismissSaveJob(finishedId);
+            }, 5000);
+          })(nextJob.id);
+        } catch (err) {
+          var errMsg = (err && err.message) || 'Gagal menyimpan data sablon.';
+          nextJob.status = 'error';
+          nextJob.errorMessage = errMsg;
+          nextJob.stageText = errMsg;
+        }
+      }
+    } finally {
+      saveWorkerRunning = false;
+    }
+  }
+
+  if (typeof global.addEventListener === 'function') {
+    global.addEventListener('beforeunload', function (event) {
+      if (hasActiveSaveJobs()) {
+        event.preventDefault();
+        event.returnValue = '';
+      }
+    });
+  }
+
   function cleanupOnLogout() {
     aiQueue.stopRequested = true;
     aiQueue.running = false;
@@ -911,11 +1136,19 @@
     formState.saveProgressText = '';
     formState.globalError = '';
     resetQueueMeta();
+
+    Object.keys(saveAutoDismissTimers).forEach(function (k) {
+      clearTimeout(saveAutoDismissTimers[k]);
+      delete saveAutoDismissTimers[k];
+    });
+    saveJobs.splice(0, saveJobs.length);
+    saveWorkerRunning = false;
   }
 
   global.ZcpSablonQueueService = {
     formState: formState,
     aiQueue: aiQueue,
+    saveJobs: saveJobs,
     makeOrderBlock: makeOrderBlock,
     makeSablonDraft: makeSablonDraft,
     nextStagedLocalId: nextStagedLocalId,
@@ -929,6 +1162,10 @@
     runAiQueue: runAiQueue,
     stopAiQueue: stopAiQueue,
     dismissNavbarStatus: dismissNavbarStatus,
+    enqueueSaveJob: enqueueSaveJob,
+    dismissSaveJob: dismissSaveJob,
+    hasActiveSaveJobs: hasActiveSaveJobs,
+    isSablonIdInSaveQueue: isSablonIdInSaveQueue,
     cleanupOnLogout: cleanupOnLogout
   };
 })(window);

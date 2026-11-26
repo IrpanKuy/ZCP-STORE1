@@ -58,6 +58,7 @@ service cloud.firestore {
                   'updatedAt'
                 ])
               )
+              || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['anggapSablonSelesai', 'updatedAt'])
             )
           );
     }
@@ -135,9 +136,15 @@ service cloud.firestore {
       allow create, update, delete: if isSuperAdmin();
     }
 
+    // Konfigurasi Google Drive API (berisi OAuth Token: hanya Superadmin & Admin dapat membaca, hanya Superadmin dapat mengubah)
+    match /app_settings/drive_config {
+      allow read: if isAdminOrSuper();
+      allow create, update, delete: if isSuperAdmin();
+    }
+
     // Koleksi Pengaturan Aplikasi umum (hanya Superadmin yang boleh mengubah)
     match /app_settings/{settingId} {
-      allow read: if settingId != 'ai_config' && isActiveUser();
+      allow read: if settingId != 'ai_config' && settingId != 'drive_config' && isActiveUser();
       allow create, update, delete: if isSuperAdmin();
     }
 
@@ -179,6 +186,13 @@ service cloud.firestore {
       allow read, delete: if isActiveUser();
       allow create, update: if isActiveUser()
         && isNonEmptyString(request.resource.data.namaAsal);
+    }
+
+    // Master Data Kategori Produk (namaKategori)
+    match /master_kategori_produk/{kategoriId} {
+      allow read, delete: if isActiveUser();
+      allow create, update: if isActiveUser()
+        && isNonEmptyString(request.resource.data.namaKategori);
     }
 
     // Koleksi Pesanan (Karyawan read-only di menu Pesanan; hanya Superadmin boleh membatalkan Selesai)

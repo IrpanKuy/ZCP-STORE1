@@ -7,6 +7,7 @@
   var PRODUK_COLLECTION = 'master_produk';
   var EXPEDISI_COLLECTION = 'master_expedisi';
   var ASAL_PESANAN_COLLECTION = 'master_asal_pesanan';
+  var KATEGORI_PRODUK_COLLECTION = 'master_kategori_produk';
 
   function getDbOrThrow() {
     var db = global.ZcpFirebase && global.ZcpFirebase.getDb();
@@ -78,6 +79,8 @@
     return {
       id: doc.id,
       namaProduk: data.namaProduk || '',
+      kategoriId: data.kategoriId || '',
+      namaKategori: data.namaKategori || '',
       templateSisi: templateSisi,
       namaSisi: namaSisi.length ? namaSisi : normalizeSisiList(legacySides),
       createdAt: data.createdAt || null,
@@ -135,6 +138,8 @@
     var namaSisi = flattenTemplateSides(cleanTemplates);
     return {
       namaProduk: namaProduk,
+      kategoriId: String(payload.kategoriId || '').trim(),
+      namaKategori: String(payload.namaKategori || '').trim(),
       templateSisi: cleanTemplates,
       namaSisi: namaSisi
     };
@@ -197,6 +202,20 @@
       });
     },
 
+    fetchKategoriProduk: async function () {
+      var db = getDbOrThrow();
+      var snapshot = await db.collection(KATEGORI_PRODUK_COLLECTION).orderBy('createdAt', 'desc').get();
+      return snapshot.docs.map(function (doc) {
+        var data = doc.data() || {};
+        return {
+          id: doc.id,
+          namaKategori: data.namaKategori || '',
+          createdAt: data.createdAt || null,
+          updatedAt: data.updatedAt || null
+        };
+      });
+    },
+
     subscribeProduk: function (onData, onError) {
       var db = getDbOrThrow();
       return db
@@ -220,6 +239,8 @@
 
       var res = await db.collection(PRODUK_COLLECTION).add({
         namaProduk: clean.namaProduk,
+        kategoriId: clean.kategoriId,
+        namaKategori: clean.namaKategori,
         templateSisi: clean.templateSisi,
         namaSisi: clean.namaSisi,
         createdAt: global.ZcpFirebase.serverTimestamp(),
@@ -232,6 +253,7 @@
           module: 'Master Produk',
           targetName: clean.namaProduk,
           details:
+            (clean.namaKategori ? 'Kategori: ' + clean.namaKategori + ' • ' : '') +
             clean.templateSisi.length +
             ' template sisi (' +
             clean.templateSisi
@@ -254,6 +276,8 @@
 
       await db.collection(PRODUK_COLLECTION).doc(id).update({
         namaProduk: clean.namaProduk,
+        kategoriId: clean.kategoriId,
+        namaKategori: clean.namaKategori,
         templateSisi: clean.templateSisi,
         namaSisi: clean.namaSisi,
         updatedAt: global.ZcpFirebase.serverTimestamp()
@@ -265,6 +289,7 @@
           module: 'Master Produk',
           targetName: clean.namaProduk,
           details:
+            (clean.namaKategori ? 'Kategori: ' + clean.namaKategori + ' • ' : '') +
             clean.templateSisi.length +
             ' template sisi (' +
             clean.templateSisi
@@ -448,6 +473,72 @@
           module: 'Master Asal Pesanan',
           targetName: targetName || id,
           details: 'Menghapus master asal pesanan'
+        });
+      }
+    },
+
+    addKategoriProduk: async function (payload) {
+      var db = getDbOrThrow();
+      var namaKategori = (payload.namaKategori || '').trim();
+      if (!namaKategori) {
+        throw new Error('Nama kategori produk wajib diisi.');
+      }
+
+      var res = await db.collection(KATEGORI_PRODUK_COLLECTION).add({
+        namaKategori: namaKategori,
+        createdAt: global.ZcpFirebase.serverTimestamp(),
+        updatedAt: global.ZcpFirebase.serverTimestamp()
+      });
+
+      if (global.ZcpActivityLogService) {
+        await global.ZcpActivityLogService.logActivity({
+          action: 'CREATE',
+          module: 'Master Kategori Produk',
+          targetName: namaKategori,
+          details: 'Menambahkan kategori produk baru'
+        });
+      }
+      return res;
+    },
+
+    updateKategoriProduk: async function (id, payload) {
+      var db = getDbOrThrow();
+      var namaKategori = (payload.namaKategori || '').trim();
+      if (!id) {
+        throw new Error('ID kategori produk tidak valid.');
+      }
+      if (!namaKategori) {
+        throw new Error('Nama kategori produk wajib diisi.');
+      }
+
+      await db.collection(KATEGORI_PRODUK_COLLECTION).doc(id).update({
+        namaKategori: namaKategori,
+        updatedAt: global.ZcpFirebase.serverTimestamp()
+      });
+
+      if (global.ZcpActivityLogService) {
+        await global.ZcpActivityLogService.logActivity({
+          action: 'UPDATE',
+          module: 'Master Kategori Produk',
+          targetName: namaKategori,
+          details: 'Memperbarui nama kategori produk'
+        });
+      }
+    },
+
+    deleteKategoriProduk: async function (id, targetName) {
+      var db = getDbOrThrow();
+      if (!id) {
+        throw new Error('ID kategori produk tidak valid.');
+      }
+      await db.collection(KATEGORI_PRODUK_COLLECTION).doc(id).delete();
+
+      if (global.ZcpActivityLogService) {
+        await global.ZcpActivityLogService.logActivity({
+          action: 'DELETE',
+          module: 'Master Kategori Produk',
+          targetName: targetName || id,
+          details: 'Menghapus master kategori produk'
         });
       }
     }

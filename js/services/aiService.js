@@ -6,12 +6,13 @@
 
   var AI_LOGS_COLLECTION = 'ai_change_logs';
   var MAX_AI_LOGS = 20;
-  var MAX_FILE_SIZE_BYTES = 75 * 1024 * 1024;
+  var MAX_FILE_SIZE_BYTES = 15 * 1024 * 1024;
   var ALLOWED_MIME_TYPES = ['image/png', 'image/jpeg', 'application/pdf'];
   var ALLOWED_COLLECTIONS = [
     'pesanan',
     'sablon',
     'master_produk',
+    'master_kategori_produk',
     'master_expedisi',
     'master_asal_pesanan'
   ];
@@ -60,7 +61,7 @@
       );
     }
     if (file.size > MAX_FILE_SIZE_BYTES) {
-      throw new Error('Ukuran "' + file.name + '" melebihi batas maksimal 75 MB.');
+      throw new Error('Ukuran "' + file.name + '" melebihi batas maksimal 15 MB.');
     }
     return mimeType;
   }
@@ -220,8 +221,16 @@
       return {
         id: p.id,
         namaProduk: p.namaProduk,
+        kategoriId: p.kategoriId || '',
+        namaKategori: p.namaKategori || '',
         templateSisi: Array.isArray(p.templateSisi) ? p.templateSisi : [],
         namaSisi: Array.isArray(p.namaSisi) ? p.namaSisi : []
+      };
+    });
+    var kategoriProduk = (ctx.kategoriProdukList || []).map(function (k) {
+      return {
+        id: k.id,
+        namaKategori: k.namaKategori
       };
     });
     var expedisi = (ctx.expedisiList || []).map(function (e) {
@@ -244,6 +253,8 @@
         asalPesananId: o.asalPesananId || '',
         produkId: o.produkId,
         namaProduk: o.namaProduk,
+        kategoriId: o.kategoriId || '',
+        namaKategori: o.namaKategori || '',
         templateSisiId: o.templateSisiId || '',
         namaTemplateSisi: o.namaTemplateSisi || '',
         namaSisi: Array.isArray(o.namaSisi) ? o.namaSisi : [],
@@ -254,6 +265,7 @@
         tanggalMulai: o.tanggalMulai || '',
         tanggalDeadline: o.tanggalDeadline || '',
         catatan: o.catatan || '',
+        anggapSablonSelesai: Boolean(o.anggapSablonSelesai),
         statusSelesai: Boolean(o.statusSelesai)
       };
     });
@@ -279,6 +291,7 @@
     return {
       tanggalHariIni: getTodayIso(),
       master_produk: produk,
+      master_kategori_produk: kategoriProduk,
       master_expedisi: expedisi,
       master_asal_pesanan: asalPesanan,
       pesanan: pesanan,
@@ -293,11 +306,11 @@
       'Tugasmu membantu admin melakukan tanya-jawab data, pembacaan dokumen/gambar (PNG, JPG, PDF seperti nota/PO/spreadsheet/desain), serta CRUD dan BULK CRUD ke koleksi Firestore.\n\n' +
       'WAJIB balas HANYA dalam format JSON valid (tanpa teks tambahan di luar JSON) dengan struktur persis:\n' +
       '{\n' +
-      '  "reply": "Penjelasan singkat, jelas, ramah dalam Bahasa Indonesia tentang hasil analisis atau daftar aksi yang disiapkan.",\n' +
+      '  "reply": "Penjelasan singkat, jelas, ramah dalam Bahasa Indonesia tentang hasil analisis atau rencana aksi yang disiapkan untuk dikonfirmasi (JANGAN menyatakan data sudah tersimpan sebelum user menyetujui konfirmasi).",\n' +
       '  "operations": [\n' +
       '    {\n' +
       '      "type": "CREATE" | "UPDATE" | "DELETE",\n' +
-      '      "collection": "pesanan" | "sablon" | "master_produk" | "master_expedisi" | "master_asal_pesanan",\n' +
+      '      "collection": "pesanan" | "sablon" | "master_produk" | "master_kategori_produk" | "master_expedisi" | "master_asal_pesanan",\n' +
       '      "docId": "wajib diisi persis id dari konteks saat UPDATE atau DELETE; kosongkan saat CREATE",\n' +
       '      "label": "Label ringkas item (misal: Pesanan Rompi - Pelanggan Umum 13 pcs)",\n' +
       '      "reason": "Alasan singkat perubahan",\n' +
@@ -306,16 +319,17 @@
       '  ]\n' +
       '}\n\n' +
       'ATURAN KOLEKSI & DEFAULT CERDAS:\n' +
-      '1. `pesanan`: field valid = { namaPemesan, asalPesananId, namaAsalPesanan, produkId, namaProduk, templateSisiId, namaTemplateSisi, namaSisi (array string), jumlahProduk (integer >=1), expedisiId, namaExpedisi, catatan, tanggalMulai (YYYY-MM-DD), tanggalDeadline (YYYY-MM-DD), statusSelesai (boolean) }.\n' +
+      '1. `pesanan`: field valid = { namaPemesan, asalPesananId, namaAsalPesanan, produkId, namaProduk, kategoriId, namaKategori, templateSisiId, namaTemplateSisi, namaSisi (array string), jumlahProduk (integer >=1), expedisiId, namaExpedisi, catatan, anggapSablonSelesai (boolean), tanggalMulai (YYYY-MM-DD), tanggalDeadline (YYYY-MM-DD), statusSelesai (boolean) }.\n' +
       '   - Jika user memberi perintah singkat mis. "buatkan pesanan Rompi 13 pcs" tanpa menyebut nama pemesan, isi namaPemesan = "Pelanggan Umum" dan langsung usulkan operasi CREATE (jangan bertanya balik jika produk & jumlah sudah jelas).\n' +
       '   - Cocokkan namaProduk dengan `master_produk` & namaAsalPesanan dengan `master_asal_pesanan` di konteks. Jika cocok dengan produk yang memiliki `templateSisi`, pilih `templateSisiId`/`namaTemplateSisi` yang sesuai (atau template pertama jika tidak disebutkan), dan salin `sisiList`-nya ke `namaSisi`.\n' +
       '2. `sablon`: field valid = { namaSablon, jumlahPerulangan (integer >=1), perulanganChecks (array boolean), catatan, statusSelesai (boolean), pesananItems: [{ pesananId, namaPemesan, namaProduk, jumlahProduk, sisiQuantities: { [namaSisi]: integer } }] }.\n' +
-      '3. `master_produk`: field valid = { namaProduk, templateSisi: [{ namaTemplate, sisiList (array string) }], namaSisi (array string) }.\n' +
+      '3. `master_produk`: field valid = { namaProduk, kategoriId, namaKategori, templateSisi: [{ namaTemplate, sisiList (array string) }], namaSisi (array string) }.\n' +
       '4. `master_expedisi`: field valid = { namaExpedisi }.\n' +
       '5. `master_asal_pesanan`: field valid = { namaAsal }.\n' +
-      '5. Untuk `UPDATE` dan `DELETE`: DILARANG mengarang `docId`. Gunakan `id` persis dari data konteks di bawah. Jika record yang dimaksud user ambigu atau tidak ditemukan, set `"operations": []` dan jelaskan di `"reply"`.\n' +
-      '6. Jika user hanya bertanya / meminta ringkasan / membaca isi file tanpa perintah mengubah data, set `"operations": []`.\n' +
-      '7. Untuk BULK CRUD (mis. mengimpor daftar pesanan dari PDF/foto, membuat banyak pesanan, menandai selesai banyak pesanan, atau menghapus banyak item sekaligus), masukkan seluruh operasinya ke array `"operations"` agar user dapat mengonfirmasi semuanya dalam satu modal.\n\n' +
+      '6. `master_kategori_produk`: field valid = { namaKategori }.\n' +
+      '7. Untuk `UPDATE` dan `DELETE`: DILARANG mengarang `docId`. Gunakan `id` persis dari data konteks di bawah. Jika record yang dimaksud user ambigu atau tidak ditemukan, set `"operations": []` dan jelaskan di `"reply"`.\n' +
+      '8. Jika user hanya bertanya / meminta ringkasan / membaca isi file tanpa perintah mengubah data, set `"operations": []`.\n' +
+      '9. Untuk BULK CRUD (mis. mengimpor daftar pesanan dari PDF/foto, membuat banyak pesanan, menandai selesai banyak pesanan, atau menghapus banyak item sekaligus), masukkan seluruh operasinya ke array `"operations"` agar user dapat mengonfirmasi semuanya dalam satu modal.\n\n' +
       'KONTEKS DATA SAAT INI (JSON):\n' +
       JSON.stringify(snapshot)
     );
@@ -422,6 +436,29 @@
     );
   }
 
+  function findMatchingKategori(data, kategoriList) {
+    var list = kategoriList || [];
+    if (!list.length || !data || typeof data !== 'object') return null;
+    if (data.kategoriId) {
+      var byId = list.find(function (k) {
+        return k.id === data.kategoriId;
+      });
+      if (byId) return byId;
+    }
+    var targetName = normalizeText(data.namaKategori);
+    if (!targetName) return null;
+    return (
+      list.find(function (k) {
+        return normalizeText(k.namaKategori) === targetName;
+      }) ||
+      list.find(function (k) {
+        var kn = normalizeText(k.namaKategori);
+        return kn.indexOf(targetName) !== -1 || targetName.indexOf(kn) !== -1;
+      }) ||
+      null
+    );
+  }
+
   function findMatchingTemplate(produk, data) {
     if (!produk) return null;
     var templates =
@@ -453,6 +490,7 @@
       pesanan: ctx.pesananList || [],
       sablon: ctx.sablonList || [],
       master_produk: ctx.produkList || [],
+      master_kategori_produk: ctx.kategoriProdukList || [],
       master_expedisi: ctx.expedisiList || [],
       master_asal_pesanan: ctx.asalPesananList || []
     };
@@ -490,12 +528,23 @@
     var matchedTpl = findMatchingTemplate(matchedProduk, data);
     var matchedExp = findMatchingExpedisi(data, storeContext.expedisiList);
     var matchedAsal = findMatchingAsal(data, storeContext.asalPesananList);
+    var matchedKat = findMatchingKategori(data, storeContext.kategoriProdukList);
 
     if (type === 'CREATE') {
       var namaPemesan = String(data.namaPemesan || '').trim() || 'Pelanggan Umum';
       var namaProduk = matchedProduk
         ? matchedProduk.namaProduk
         : String(data.namaProduk || '').trim() || 'Produk Custom';
+      var kategoriId = matchedProduk
+        ? matchedProduk.kategoriId || (matchedKat ? matchedKat.id : '')
+        : matchedKat
+        ? matchedKat.id
+        : '';
+      var namaKategori = matchedProduk
+        ? matchedProduk.namaKategori || (matchedKat ? matchedKat.namaKategori : '')
+        : matchedKat
+        ? matchedKat.namaKategori
+        : String(data.namaKategori || '').trim();
       var rawSisi = Array.isArray(data.namaSisi)
         ? data.namaSisi
             .map(function (s) {
@@ -526,6 +575,8 @@
           : String(data.namaAsalPesanan || '').trim(),
         produkId: matchedProduk ? matchedProduk.id : '',
         namaProduk: namaProduk,
+        kategoriId: kategoriId,
+        namaKategori: namaKategori,
         templateSisiId: matchedTpl ? matchedTpl.id : '',
         namaTemplateSisi: matchedTpl
           ? matchedTpl.namaTemplate
@@ -538,6 +589,7 @@
         expedisiId: matchedExp ? matchedExp.id : '',
         namaExpedisi: matchedExp ? matchedExp.namaExpedisi : String(data.namaExpedisi || '').trim(),
         catatan: String(data.catatan || '').trim(),
+        anggapSablonSelesai: Boolean(data.anggapSablonSelesai),
         tanggalMulai: String(data.tanggalMulai || '').trim(),
         tanggalDeadline: String(data.tanggalDeadline || '').trim(),
         statusSelesai: done,
@@ -560,11 +612,24 @@
       if (matchedProduk) {
         patch.produkId = matchedProduk.id;
         patch.namaProduk = matchedProduk.namaProduk;
+        if (matchedProduk.kategoriId || matchedProduk.namaKategori) {
+          patch.kategoriId = matchedProduk.kategoriId || '';
+          patch.namaKategori = matchedProduk.namaKategori || '';
+        }
         if (!Array.isArray(data.namaSisi)) {
           patch.namaSisi = matchedProduk.namaSisi.slice();
         }
       } else if (data.namaProduk !== undefined) {
         patch.namaProduk = String(data.namaProduk || '').trim();
+      }
+    }
+    if (data.kategoriId !== undefined || data.namaKategori !== undefined) {
+      if (matchedKat) {
+        patch.kategoriId = matchedKat.id;
+        patch.namaKategori = matchedKat.namaKategori;
+      } else {
+        patch.kategoriId = '';
+        patch.namaKategori = String(data.namaKategori || '').trim();
       }
     }
     if (Array.isArray(data.namaSisi)) {
@@ -599,6 +664,9 @@
       }
     }
     if (data.catatan !== undefined) patch.catatan = String(data.catatan || '').trim();
+    if (data.anggapSablonSelesai !== undefined) {
+      patch.anggapSablonSelesai = Boolean(data.anggapSablonSelesai);
+    }
     if (data.tanggalMulai !== undefined) patch.tanggalMulai = String(data.tanggalMulai || '').trim();
     if (data.tanggalDeadline !== undefined) {
       patch.tanggalDeadline = String(data.tanggalDeadline || '').trim();
@@ -730,7 +798,7 @@
     return patch;
   }
 
-  function buildMasterProdukPayload(rawData) {
+  function buildMasterProdukPayload(rawData, storeContext, existingDoc) {
     var data = rawData && typeof rawData === 'object' ? rawData : {};
     var namaSisi = Array.isArray(data.namaSisi)
       ? data.namaSisi
@@ -738,17 +806,48 @@
             return String(s || '').trim();
           })
           .filter(Boolean)
+      : existingDoc && Array.isArray(existingDoc.namaSisi) && existingDoc.namaSisi.length
+      ? existingDoc.namaSisi.slice()
       : ['Depan', 'Belakang'];
     if (!namaSisi.length) namaSisi = ['Depan', 'Belakang'];
 
     var templateSisi = [];
     if (global.ZcpMasterService && global.ZcpMasterService.normalizeTemplateSisiList) {
-      templateSisi = global.ZcpMasterService.normalizeTemplateSisiList(data.templateSisi, namaSisi);
+      var rawTemplates = Array.isArray(data.templateSisi)
+        ? data.templateSisi
+        : existingDoc && Array.isArray(existingDoc.templateSisi)
+        ? existingDoc.templateSisi
+        : [];
+      templateSisi = global.ZcpMasterService.normalizeTemplateSisiList(rawTemplates, namaSisi);
       namaSisi = global.ZcpMasterService.flattenTemplateSides(templateSisi);
     }
 
+    var matchedKat = findMatchingKategori(
+      data,
+      storeContext && storeContext.kategoriProdukList
+    );
+    var kategoriId = matchedKat
+      ? matchedKat.id
+      : data.kategoriId !== undefined
+      ? String(data.kategoriId || '').trim()
+      : existingDoc && existingDoc.kategoriId
+      ? existingDoc.kategoriId
+      : '';
+    var namaKategori = matchedKat
+      ? matchedKat.namaKategori
+      : data.namaKategori !== undefined
+      ? String(data.namaKategori || '').trim()
+      : existingDoc && existingDoc.namaKategori
+      ? existingDoc.namaKategori
+      : '';
+
     return {
-      namaProduk: String(data.namaProduk || '').trim() || 'Produk Baru',
+      namaProduk:
+        String(data.namaProduk || '').trim() ||
+        (existingDoc && existingDoc.namaProduk) ||
+        'Produk Baru',
+      kategoriId: kategoriId,
+      namaKategori: namaKategori,
       templateSisi: templateSisi,
       namaSisi: namaSisi
     };
@@ -765,6 +864,14 @@
     var data = rawData && typeof rawData === 'object' ? rawData : {};
     return {
       namaAsal: String(data.namaAsal || '').trim() || 'Asal Pesanan Baru'
+    };
+  }
+
+  function buildMasterKategoriPayload(rawData) {
+    var data = rawData && typeof rawData === 'object' ? rawData : {};
+    return {
+      namaKategori:
+        String(data.namaKategori || data.nama || '').trim() || 'Kategori Baru'
     };
   }
 
@@ -799,7 +906,9 @@
           } else if (collection === 'sablon') {
             payload = buildSablonPayload(type, op.data, existingDoc, ctx);
           } else if (collection === 'master_produk') {
-            payload = buildMasterProdukPayload(op.data);
+            payload = buildMasterProdukPayload(op.data, ctx, existingDoc);
+          } else if (collection === 'master_kategori_produk') {
+            payload = buildMasterKategoriPayload(op.data);
           } else if (collection === 'master_expedisi') {
             payload = buildMasterExpedisiPayload(op.data);
           } else if (collection === 'master_asal_pesanan') {
@@ -810,7 +919,7 @@
         var detailRows = [];
         if (type === 'CREATE') {
           Object.keys(payload).forEach(function (k) {
-            if (['sisiProgress', 'fileDesigns', 'fileSablon', 'perulanganCheckMeta', 'completedAt', 'completedByUid', 'completedByName', 'produkId', 'expedisiId'].indexOf(k) !== -1) {
+            if (['sisiProgress', 'fileDesigns', 'fileSablon', 'perulanganCheckMeta', 'completedAt', 'completedByUid', 'completedByName', 'produkId', 'kategoriId', 'asalPesananId', 'templateSisiId', 'expedisiId'].indexOf(k) !== -1) {
               return;
             }
             if (payload[k] === '' || payload[k] === null) return;
@@ -822,7 +931,7 @@
           });
         } else if (type === 'UPDATE' && existingDoc) {
           Object.keys(payload).forEach(function (k) {
-            if (['sisiProgress', 'perulanganCheckMeta', 'completedAt', 'completedByUid', 'completedByName', 'produkId', 'expedisiId'].indexOf(k) !== -1) {
+            if (['sisiProgress', 'perulanganCheckMeta', 'completedAt', 'completedByUid', 'completedByName', 'produkId', 'kategoriId', 'asalPesananId', 'templateSisiId', 'expedisiId'].indexOf(k) !== -1) {
               return;
             }
             detailRows.push({
@@ -857,15 +966,20 @@
           } else {
             detailRows.push({
               field: 'Data Dihapus',
-              before: existingDoc.namaProduk || existingDoc.namaExpedisi || existingDoc.id,
+              before:
+                existingDoc.namaProduk ||
+                existingDoc.namaKategori ||
+                existingDoc.namaExpedisi ||
+                existingDoc.namaAsal ||
+                existingDoc.id,
               after: '(akan dihapus)'
             });
           }
         }
 
         var fallbackLabel =
-          (payload && (payload.namaPemesan || payload.namaSablon || payload.namaProduk || payload.namaExpedisi)) ||
-          (existingDoc && (existingDoc.namaPemesan || existingDoc.namaSablon || existingDoc.namaProduk || existingDoc.namaExpedisi)) ||
+          (payload && (payload.namaPemesan || payload.namaSablon || payload.namaProduk || payload.namaKategori || payload.namaExpedisi || payload.namaAsal)) ||
+          (existingDoc && (existingDoc.namaPemesan || existingDoc.namaSablon || existingDoc.namaProduk || existingDoc.namaKategori || existingDoc.namaExpedisi || existingDoc.namaAsal)) ||
           collection;
 
         return {
@@ -1355,6 +1469,7 @@
         touchedMaster: recordedChanges.some(function (c) {
           return (
             c.collection === 'master_produk' ||
+            c.collection === 'master_kategori_produk' ||
             c.collection === 'master_expedisi' ||
             c.collection === 'master_asal_pesanan'
           );
@@ -1481,6 +1596,7 @@
         touchedMaster: changes.some(function (c) {
           return (
             c.collection === 'master_produk' ||
+            c.collection === 'master_kategori_produk' ||
             c.collection === 'master_expedisi' ||
             c.collection === 'master_asal_pesanan'
           );

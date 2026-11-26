@@ -170,6 +170,8 @@
       namaAsalPesanan: namaAsalPesanan,
       produkId: payload.produkId || '',
       namaProduk: namaProduk,
+      kategoriId: String(payload.kategoriId || '').trim(),
+      namaKategori: String(payload.namaKategori || '').trim(),
       templateSisiId: String(payload.templateSisiId || '').trim(),
       namaTemplateSisi: String(payload.namaTemplateSisi || '').trim(),
       namaSisi: namaSisi,
@@ -178,7 +180,8 @@
       fileDesigns: Array.isArray(payload.fileDesigns) ? payload.fileDesigns : [],
       expedisiId: payload.expedisiId || '',
       namaExpedisi: namaExpedisi,
-      catatan: (payload.catatan || '').trim()
+      catatan: (payload.catatan || '').trim(),
+      anggapSablonSelesai: Boolean(payload.anggapSablonSelesai)
     };
   }
 
@@ -221,6 +224,8 @@
                 namaAsalPesanan: data.namaAsalPesanan || '',
                 produkId: data.produkId || '',
                 namaProduk: data.namaProduk || '',
+                kategoriId: data.kategoriId || '',
+                namaKategori: data.namaKategori || '',
                 templateSisiId: data.templateSisiId || '',
                 namaTemplateSisi: data.namaTemplateSisi || '',
                 namaSisi: namaSisi,
@@ -234,6 +239,7 @@
                 expedisiId: data.expedisiId || '',
                 namaExpedisi: data.namaExpedisi || '',
                 catatan: data.catatan || '',
+                anggapSablonSelesai: Boolean(data.anggapSablonSelesai),
                 tanggalMulai: data.tanggalMulai || '',
                 tanggalDeadline: data.tanggalDeadline || '',
                 statusSelesai: Boolean(data.statusSelesai),
@@ -274,6 +280,8 @@
         namaAsalPesanan: clean.namaAsalPesanan,
         produkId: clean.produkId,
         namaProduk: clean.namaProduk,
+        kategoriId: clean.kategoriId,
+        namaKategori: clean.namaKategori,
         templateSisiId: clean.templateSisiId,
         namaTemplateSisi: clean.namaTemplateSisi,
         namaSisi: clean.namaSisi,
@@ -284,6 +292,7 @@
         expedisiId: clean.expedisiId,
         namaExpedisi: clean.namaExpedisi,
         catatan: clean.catatan,
+        anggapSablonSelesai: clean.anggapSablonSelesai,
         tanggalMulai: '',
         tanggalDeadline: '',
         statusSelesai: false,
@@ -329,6 +338,8 @@
         namaAsalPesanan: clean.namaAsalPesanan,
         produkId: clean.produkId,
         namaProduk: clean.namaProduk,
+        kategoriId: clean.kategoriId,
+        namaKategori: clean.namaKategori,
         templateSisiId: clean.templateSisiId,
         namaTemplateSisi: clean.namaTemplateSisi,
         namaSisi: clean.namaSisi,
@@ -339,6 +350,7 @@
         expedisiId: clean.expedisiId,
         namaExpedisi: clean.namaExpedisi,
         catatan: clean.catatan,
+        anggapSablonSelesai: clean.anggapSablonSelesai,
         updatedAt: global.ZcpFirebase.serverTimestamp()
       });
 
@@ -558,6 +570,33 @@
           module: 'Operasional',
           targetName: label,
           details: done ? 'Menandai pesanan selesai' : 'Membatalkan status selesai pesanan (Superadmin)'
+        });
+      }
+    },
+
+    toggleAnggapSablonSelesai: async function (id, isDone, orderMeta) {
+      var db = getDbOrThrow();
+      if (!id) {
+        throw new Error('ID pesanan tidak valid.');
+      }
+      var nextVal = Boolean(isDone);
+      await db.collection(PESANAN_COLLECTION).doc(id).update({
+        anggapSablonSelesai: nextVal,
+        updatedAt: global.ZcpFirebase.serverTimestamp()
+      });
+
+      if (global.ZcpActivityLogService) {
+        var label =
+          orderMeta && orderMeta.namaPemesan
+            ? orderMeta.namaPemesan + (orderMeta.namaProduk ? ' (' + orderMeta.namaProduk + ')' : '')
+            : id;
+        await global.ZcpActivityLogService.logActivity({
+          action: 'UPDATE',
+          module: 'Pesanan',
+          targetName: label,
+          details: nextVal
+            ? 'Mengaktifkan status Anggap Semua Sablon Selesai (ON)'
+            : 'Menonaktifkan status Anggap Semua Sablon Selesai (OFF)'
         });
       }
     }

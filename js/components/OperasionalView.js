@@ -18,6 +18,18 @@
           return [];
         }
       },
+      produkList: {
+        type: Array,
+        default: function () {
+          return [];
+        }
+      },
+      kategoriProdukList: {
+        type: Array,
+        default: function () {
+          return [];
+        }
+      },
       staffList: {
         type: Array,
         default: function () {
@@ -38,6 +50,7 @@
       return {
         searchQuery: '',
         statusFilter: 'all',
+        kategoriFilter: '',
         currentPage: 1,
         localPageSize: this.defaultPageSize,
         selectedIds: [],
@@ -66,6 +79,9 @@
         this.currentPage = 1;
       },
       statusFilter: function () {
+        this.currentPage = 1;
+      },
+      kategoriFilter: function () {
         this.currentPage = 1;
       },
       pesananList: {
@@ -143,12 +159,34 @@
           return st === 'overdue' || st === 'soon';
         }).length;
       },
+      kategoriFilterOptions: function () {
+        var map = {};
+        var names = [];
+        this.kategoriProdukList.forEach(function (k) {
+          if (k && k.namaKategori && !map[k.namaKategori]) {
+            map[k.namaKategori] = true;
+            names.push(k.namaKategori);
+          }
+        });
+        var self = this;
+        this.pesananList.forEach(function (o) {
+          var kName = self.resolveOrderKategoriName(o);
+          if (kName && !map[kName]) {
+            map[kName] = true;
+            names.push(kName);
+          }
+        });
+        return names.sort();
+      },
       filteredList: function () {
         var q = this.searchQuery.trim().toLowerCase();
         var filter = this.statusFilter;
+        var katFilter = this.kategoriFilter;
+        var self = this;
 
         return this.pesananList.filter(function (order) {
           var deadlineStatus = global.ZcpPesananService.getDeadlineStatus(order);
+          var katName = self.resolveOrderKategoriName(order);
 
           if (filter === 'active' && order.statusSelesai) return false;
           if (filter === 'done' && !order.statusSelesai) return false;
@@ -156,10 +194,12 @@
           if (filter === 'unscheduled' && (order.statusSelesai || deadlineStatus !== 'unscheduled')) {
             return false;
           }
+          if (katFilter && katName !== katFilter) return false;
 
           if (!q) return true;
           var matchPemesan = (order.namaPemesan || '').toLowerCase().indexOf(q) !== -1;
           var matchProduk = (order.namaProduk || '').toLowerCase().indexOf(q) !== -1;
+          var matchKategori = katName.toLowerCase().indexOf(q) !== -1;
           var matchAsal = (order.namaAsalPesanan || '').toLowerCase().indexOf(q) !== -1;
           var matchExpedisi = (order.namaExpedisi || '').toLowerCase().indexOf(q) !== -1;
           var matchSisi =
@@ -168,7 +208,7 @@
               return String(s).toLowerCase().indexOf(q) !== -1;
             });
 
-          return matchPemesan || matchProduk || matchAsal || matchExpedisi || matchSisi;
+          return matchPemesan || matchProduk || matchKategori || matchAsal || matchExpedisi || matchSisi;
         });
       },
       activeFilteredOrders: function () {
@@ -369,7 +409,36 @@
           this.bulkSaving = false;
         }
       },
+      resolveKategoriByIdOrName: function (kategoriId, fallbackName) {
+        if (kategoriId) {
+          for (var i = 0; i < this.kategoriProdukList.length; i++) {
+            if (this.kategoriProdukList[i].id === kategoriId) {
+              return this.kategoriProdukList[i].namaKategori || fallbackName || '';
+            }
+          }
+        }
+        return fallbackName || '';
+      },
+      resolveOrderKategoriName: function (order) {
+        if (!order) return '';
+        var matchedProd = null;
+        for (var i = 0; i < this.produkList.length; i++) {
+          var p = this.produkList[i];
+          if ((order.produkId && p.id === order.produkId) || (order.namaProduk && p.namaProduk === order.namaProduk)) {
+            matchedProd = p;
+            break;
+          }
+        }
+        if (matchedProd) {
+          var fromProd = this.resolveKategoriByIdOrName(matchedProd.kategoriId, matchedProd.namaKategori);
+          if (fromProd) return fromProd;
+        }
+        return this.resolveKategoriByIdOrName(order.kategoriId, order.namaKategori);
+      },
       getSideDoneCount: function (order, sisi) {
+        if (order && order.anggapSablonSelesai) {
+          return Number(order.jumlahProduk) || 0;
+        }
         if (this.sablonList && this.sablonList.length > 0) {
           return (
             (this.completedSablonTotals[order.id] &&
@@ -765,6 +834,13 @@
                 <option value="done">Sudah Selesai</option>
               </select>
 
+              <select v-model="kategoriFilter" class="filter-select" aria-label="Filter kategori">
+                <option value="">Semua Kategori</option>
+                <option v-for="kName in kategoriFilterOptions" :key="kName" :value="kName">
+                  {{ kName }}
+                </option>
+              </select>
+
               <button
                 v-if="!isKaryawan && filteredList.length"
                 type="button"
@@ -851,6 +927,10 @@
                       </span>
                       <span>{{ deadlineBadgeMeta(order).text }}</span>
                     </span>
+                    <span v-if="order.anggapSablonSelesai" class="status-badge done">
+                      <span class="material-symbols-rounded" style="font-size: 14px;">done_all</span>
+                      <span>Sablon Selesai (100%)</span>
+                    </span>
                     <button
                       v-if="order.fileDesigns && order.fileDesigns.length"
                       type="button"
@@ -863,6 +943,9 @@
                   </div>
                   <div class="op-order-sub">
                     <strong>{{ order.namaProduk }}</strong>
+                    <span v-if="resolveOrderKategoriName(order)" class="kategori-badge" style="margin-left: 6px;">
+                      {{ resolveOrderKategoriName(order) }}
+                    </span>
                     <span v-if="order.namaTemplateSisi"> ({{ order.namaTemplateSisi }})</span>
                     • Expedisi: {{ order.namaExpedisi }}
                     <span v-if="order.catatan"> • {{ order.catatan }}</span>
@@ -978,7 +1061,7 @@
                     </div>
                   </div>
                   <div class="op-sisi-count">
-                    <strong>{{ getSideDoneCount(order, sisi) }}</strong> dari {{ order.jumlahProduk }} selesai
+                    <strong>{{ getSideDoneCount(order, sisi) }}/{{ order.jumlahProduk }}</strong> selesai
                   </div>
                 </div>
               </div>
@@ -1019,6 +1102,10 @@
                       <span class="material-symbols-rounded" style="font-size: 14px;">check_circle</span>
                       <span>Selesai</span>
                     </span>
+                    <span v-if="order.anggapSablonSelesai" class="status-badge done">
+                      <span class="material-symbols-rounded" style="font-size: 14px;">done_all</span>
+                      <span>Sablon Selesai (100%)</span>
+                    </span>
                     <span class="completed-by-tag">
                       <span class="material-symbols-rounded" style="font-size: 14px;">person</span>
                       <span>Selesai oleh: {{ order.completedByName || 'Admin' }}</span>
@@ -1035,6 +1122,9 @@
                   </div>
                   <div class="op-order-sub">
                     <strong>{{ order.namaProduk }}</strong>
+                    <span v-if="resolveOrderKategoriName(order)" class="kategori-badge" style="margin-left: 6px;">
+                      {{ resolveOrderKategoriName(order) }}
+                    </span>
                     <span v-if="order.namaTemplateSisi"> ({{ order.namaTemplateSisi }})</span>
                     • Expedisi: {{ order.namaExpedisi }}
                     <span v-if="order.catatan"> • {{ order.catatan }}</span>
@@ -1127,7 +1217,7 @@
                     </div>
                   </div>
                   <div class="op-sisi-count">
-                    <strong>{{ getSideDoneCount(order, sisi) }}</strong> dari {{ order.jumlahProduk }} selesai
+                    <strong>{{ getSideDoneCount(order, sisi) }}/{{ order.jumlahProduk }}</strong> selesai
                   </div>
                 </div>
               </div>

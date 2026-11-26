@@ -272,6 +272,10 @@
         return sablon.perulanganChecks.filter(Boolean).length;
       },
       getOtherCompletedForSide: function (pesananId, sideName) {
+        var targetOrder = this.pesananMap[pesananId];
+        if (targetOrder && targetOrder.anggapSablonSelesai) {
+          return Number(targetOrder.jumlahProduk) || 0;
+        }
         var totalCompleted =
           (this.completedQtyMap[pesananId] && Number(this.completedQtyMap[pesananId][sideName])) ||
           0;
@@ -455,7 +459,7 @@
 
         if (draft.stagedFiles.length > 0 && !this.driveReady) {
           draft.formError =
-            'Google Apps Script (gasUrl) belum diisi di js/firebase-config.js, sehingga file sablon tidak dapat diupload.';
+            'Konfigurasi Google Drive API belum diisi di menu Pengaturan, sehingga file sablon tidak dapat diupload.';
           return label + ': ' + draft.formError;
         }
 
@@ -465,7 +469,7 @@
           pesananItems: pesananItems
         };
       },
-      saveAllDrafts: async function () {
+      saveAllDrafts: function () {
         if (this.isLocked) return;
         this.formState.globalError = '';
         this.formState.saveProgressText = '';
@@ -483,113 +487,42 @@
           });
         }
 
-        this.formState.savingAll = true;
-        var savedCount = 0;
-        var self = this;
-
-        try {
-          for (var k = 0; k < prepared.length; k++) {
-            var entry = prepared[k];
-            var d = entry.draft;
-            var dLabel = entry.data.namaSablon;
-
-            var uploadedFiles = [];
-            if (d.stagedFiles.length > 0) {
-              var rawFiles = d.stagedFiles.map(function (f) {
-                return f.file;
-              });
-              uploadedFiles = await global.ZcpDriveService.uploadMultipleFiles(
-                rawFiles,
-                'sablon',
-                function (prog) {
-                  self.formState.saveProgressText =
-                    '[' +
-                    (k + 1) +
-                    '/' +
-                    prepared.length +
-                    ' ' +
-                    dLabel +
-                    '] Upload file ' +
-                    prog.current +
-                    '/' +
-                    prog.total +
-                    ': ' +
-                    prog.fileName +
-                    '...';
-                }
-              );
-            }
-
-            this.formState.saveProgressText =
-              'Menyimpan "' + dLabel + '" (' + (k + 1) + '/' + prepared.length + ')...';
-
-            var keptExisting = (d.existingFiles || []).filter(function (f) {
-              return (d.removedFileIds || []).indexOf(f.fileId) === -1;
+        var jobItems = prepared.map(function (entry) {
+          var d = entry.draft;
+          var rawFiles = (d.stagedFiles || [])
+            .map(function (f) {
+              return f && f.file ? f.file : null;
+            })
+            .filter(Boolean);
+          var removedIds = Array.isArray(d.removedFileIds) ? d.removedFileIds.slice() : [];
+          var keptExistingFiles = (d.existingFiles || [])
+            .filter(function (f) {
+              return f && removedIds.indexOf(f.fileId) === -1;
+            })
+            .map(function (f) {
+              return Object.assign({}, f);
             });
-            var mergedFiles = keptExisting.concat(uploadedFiles);
 
-            var payload = {
-              namaSablon: dLabel,
-              pesananItems: entry.data.pesananItems,
-              jumlahPerulangan: entry.data.jumlahPerulangan,
-              fileSablon: mergedFiles,
-              catatan: d.catatan
-            };
+          return {
+            namaSablon: entry.data.namaSablon,
+            jumlahPerulangan: entry.data.jumlahPerulangan,
+            pesananItems: entry.data.pesananItems,
+            catatan: (d.catatan || '').trim(),
+            rawFiles: rawFiles,
+            keptExistingFiles: keptExistingFiles,
+            removedFileIds: removedIds
+          };
+        });
 
-            if (this.formState.mode === 'edit' && this.formState.editingSablon) {
-              await global.ZcpSablonService.updateSablon(
-                this.formState.editingSablon.id,
-                payload,
-                this.formState.editingSablon
-              );
+        global.ZcpSablonQueueService.enqueueSaveJob({
+          mode: this.formState.mode,
+          editingSablon: this.formState.editingSablon,
+          driveReady: this.driveReady,
+          items: jobItems
+        });
 
-              if (this.driveReady && d.removedFileIds.length > 0) {
-                for (var r = 0; r < d.removedFileIds.length; r++) {
-                  try {
-                    await global.ZcpDriveService.deleteFile(d.removedFileIds[r]);
-                  } catch (e) {
-                    // Best-effort cleanup
-                  }
-                }
-              }
-            } else {
-              await global.ZcpSablonService.addSablon(payload);
-            }
-
-            savedCount += 1;
-          }
-
-          var successMsg =
-            this.formState.mode === 'edit'
-              ? 'Data sablon "' + prepared[0].data.namaSablon + '" berhasil diperbarui.'
-              : prepared.length > 1
-              ? prepared.length + ' data sablon berhasil disimpan sekaligus.'
-              : 'Data sablon "' + prepared[0].data.namaSablon + '" berhasil ditambahkan.';
-
-          global.ZcpSablonQueueService.resetToCreate();
-          this.$emit('notify', {
-            type: 'success',
-            message: successMsg
-          });
-          this.$emit('saved');
-        } catch (err) {
-          var errMsg = (err && err.message) || 'Gagal menyimpan data sablon.';
-          if (this.formState.mode === 'create' && savedCount > 0 && savedCount < this.formState.drafts.length) {
-            // Hapus draft yang sudah berhasil tersimpan agar tidak terduplikasi jika user menyimpan ulang
-            for (var rm = 0; rm < savedCount; rm++) {
-              global.ZcpSablonQueueService.removeDraft(0);
-            }
-            this.formState.globalError =
-              savedCount +
-              ' sablon sebelumnya sudah tersimpan, namun berhenti pada sablon berikutnya: ' +
-              errMsg;
-          } else {
-            this.formState.globalError = errMsg;
-          }
-        } finally {
-          this.formState.savingAll = false;
-          this.formState.saveProgressText = '';
-        }
+        global.ZcpSablonQueueService.resetToCreate();
+        this.$emit('saved');
       }
     },
     template: `
@@ -833,7 +766,7 @@
                 <div v-if="!driveReady" class="alert alert-warning" style="margin-bottom: 10px;">
                   <span class="material-symbols-rounded">cloud_off</span>
                   <div>
-                    <code>gasConfig.gasUrl</code> belum diisi di <code>js/firebase-config.js</code>.
+                    Konfigurasi Google Drive API belum diisi di menu <strong>Pengaturan</strong>.
                     Data sablon tetap bisa disimpan tanpa file.
                   </div>
                 </div>
@@ -858,7 +791,7 @@
                   <span class="material-symbols-rounded">cloud_upload</span>
                   <div class="upload-dropzone-title">Klik atau seret file sablon ke sini</div>
                   <div class="upload-dropzone-sub">
-                    Support PNG, JPG/JPEG, PDF (maks. 75 MB per file) — disimpan ke Google Drive
+                    Support PNG, JPG/JPEG, PDF (maks. 100 MB per file) — disimpan ke Google Drive
                   </div>
                 </div>
 

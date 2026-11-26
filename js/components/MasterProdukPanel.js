@@ -35,6 +35,12 @@
           return [];
         }
       },
+      kategoriProdukList: {
+        type: Array,
+        default: function () {
+          return [];
+        }
+      },
       loading: { type: Boolean, default: false },
       defaultPageSize: {
         type: [Number, String],
@@ -45,11 +51,15 @@
     data: function () {
       return {
         searchQuery: '',
+        kategoriFilter: '',
         currentPage: 1,
         localPageSize: this.defaultPageSize,
         modalOpen: false,
         editingId: null,
         namaProduk: '',
+        selectedKategoriKey: '',
+        snapshotKategoriId: '',
+        snapshotKategoriName: '',
         templateRows: [makeTemplateRow('')],
         formError: '',
         saving: false,
@@ -64,14 +74,51 @@
       },
       searchQuery: function () {
         this.currentPage = 1;
+      },
+      kategoriFilter: function () {
+        this.currentPage = 1;
       }
     },
     computed: {
+      kategoriFilterOptions: function () {
+        var map = {};
+        var names = [];
+        this.kategoriProdukList.forEach(function (k) {
+          if (k && k.namaKategori && !map[k.namaKategori]) {
+            map[k.namaKategori] = true;
+            names.push(k.namaKategori);
+          }
+        });
+        var self = this;
+        this.produkList.forEach(function (p) {
+          var name = self.resolveKategoriName(p);
+          if (name && !map[name]) {
+            map[name] = true;
+            names.push(name);
+          }
+        });
+        return names.sort();
+      },
+      selectedKategoriObj: function () {
+        var key = this.selectedKategoriKey;
+        if (!key || key === '__snapshot__') return null;
+        for (var i = 0; i < this.kategoriProdukList.length; i++) {
+          if (this.kategoriProdukList[i].id === key) {
+            return this.kategoriProdukList[i];
+          }
+        }
+        return null;
+      },
       filteredList: function () {
         var q = this.searchQuery.trim().toLowerCase();
-        if (!q) return this.produkList;
+        var katFilter = this.kategoriFilter;
+        var self = this;
         return this.produkList.filter(function (item) {
+          var katName = self.resolveKategoriName(item);
+          if (katFilter && katName !== katFilter) return false;
+          if (!q) return true;
           var matchNama = (item.namaProduk || '').toLowerCase().indexOf(q) !== -1;
+          var matchKat = katName.toLowerCase().indexOf(q) !== -1;
           var matchSisi =
             Array.isArray(item.namaSisi) &&
             item.namaSisi.some(function (sisi) {
@@ -82,7 +129,7 @@
             item.templateSisi.some(function (tpl) {
               return (tpl.namaTemplate || '').toLowerCase().indexOf(q) !== -1;
             });
-          return matchNama || matchSisi || matchTpl;
+          return matchNama || matchKat || matchSisi || matchTpl;
         });
       },
       paginatedList: function () {
@@ -96,6 +143,17 @@
       formatDate: function (ts) {
         return global.ZcpMasterService.formatDate(ts);
       },
+      resolveKategoriName: function (item) {
+        if (!item) return '';
+        if (item.kategoriId) {
+          for (var i = 0; i < this.kategoriProdukList.length; i++) {
+            if (this.kategoriProdukList[i].id === item.kategoriId) {
+              return this.kategoriProdukList[i].namaKategori || item.namaKategori || '';
+            }
+          }
+        }
+        return item.namaKategori || '';
+      },
       getNormalizedTemplates: function (item) {
         if (global.ZcpMasterService && global.ZcpMasterService.normalizeTemplateSisiList) {
           return global.ZcpMasterService.normalizeTemplateSisiList(
@@ -108,6 +166,9 @@
       openAddModal: function () {
         this.editingId = null;
         this.namaProduk = '';
+        this.selectedKategoriKey = '';
+        this.snapshotKategoriId = '';
+        this.snapshotKategoriName = '';
         this.templateRows = [makeTemplateRow('', ['Depan', 'Belakang'])];
         this.formError = '';
         this.modalOpen = true;
@@ -120,6 +181,19 @@
       openEditModal: function (item) {
         this.editingId = item.id;
         this.namaProduk = item.namaProduk || '';
+        var matchedKat = this.kategoriProdukList.find(function (k) {
+          return (
+            (item.kategoriId && k.id === item.kategoriId) ||
+            (item.namaKategori && k.namaKategori === item.namaKategori)
+          );
+        });
+        this.selectedKategoriKey = matchedKat
+          ? matchedKat.id
+          : item.namaKategori
+          ? '__snapshot__'
+          : '';
+        this.snapshotKategoriId = item.kategoriId || '';
+        this.snapshotKategoriName = item.namaKategori || '';
         var normalizedTpls = this.getNormalizedTemplates(item);
         this.templateRows = normalizedTpls.length
           ? normalizedTpls.map(function (tpl) {
@@ -235,11 +309,23 @@
           });
         }
 
+        var kategoriId = '';
+        var namaKategori = '';
+        if (this.selectedKategoriObj) {
+          kategoriId = this.selectedKategoriObj.id;
+          namaKategori = this.selectedKategoriObj.namaKategori;
+        } else if (this.selectedKategoriKey === '__snapshot__') {
+          kategoriId = this.snapshotKategoriId;
+          namaKategori = this.snapshotKategoriName;
+        }
+
         this.saving = true;
         try {
           if (this.editingId) {
             await global.ZcpMasterService.updateProduk(this.editingId, {
               namaProduk: cleanProduk,
+              kategoriId: kategoriId,
+              namaKategori: namaKategori,
               templateSisi: cleanTemplates
             });
             this.$emit('notify', {
@@ -249,6 +335,8 @@
           } else {
             await global.ZcpMasterService.addProduk({
               namaProduk: cleanProduk,
+              kategoriId: kategoriId,
+              namaKategori: namaKategori,
               templateSisi: cleanTemplates
             });
             this.$emit('notify', {
@@ -300,7 +388,7 @@
                 v-model="searchQuery"
                 type="text"
                 class="form-control"
-                placeholder="Cari produk, template, atau sisi..."
+                placeholder="Cari produk, kategori, template..."
                 aria-label="Cari produk"
               />
               <button
@@ -313,6 +401,13 @@
                 <span class="material-symbols-rounded" style="font-size: 18px;">close</span>
               </button>
             </div>
+
+            <select v-model="kategoriFilter" class="filter-select" aria-label="Filter kategori produk">
+              <option value="">Semua Kategori</option>
+              <option v-for="kName in kategoriFilterOptions" :key="kName" :value="kName">
+                {{ kName }}
+              </option>
+            </select>
 
             <button type="button" class="btn btn-primary" @click="openAddModal">
               <span class="material-symbols-rounded" style="font-size: 19px;">add</span>
@@ -330,15 +425,15 @@
           <div class="empty-state-icon">
             <span class="material-symbols-rounded">checkroom</span>
           </div>
-          <h3>{{ searchQuery ? 'Produk tidak ditemukan' : 'Belum ada Master Produk' }}</h3>
+          <h3>{{ (searchQuery || kategoriFilter) ? 'Produk tidak ditemukan' : 'Belum ada Master Produk' }}</h3>
           <p>
             {{
-              searchQuery
+              (searchQuery || kategoriFilter)
                 ? 'Coba kata kunci pencarian lain atau bersihkan filter.'
                 : 'Tambahkan produk pertama (misalnya Kaos, Payung, Hoodie) beserta template sisi dan groupingnya.'
             }}
           </p>
-          <button v-if="!searchQuery" type="button" class="btn btn-primary" @click="openAddModal">
+          <button v-if="!(searchQuery || kategoriFilter)" type="button" class="btn btn-primary" @click="openAddModal">
             <span class="material-symbols-rounded" style="font-size: 19px;">add</span>
             <span>Tambah Produk Pertama</span>
           </button>
@@ -350,6 +445,7 @@
                 <tr>
                   <th class="col-no">No</th>
                   <th>Nama Produk</th>
+                  <th>Kategori</th>
                   <th>Template Sisi</th>
                   <th>Jumlah Template</th>
                   <th>Dibuat</th>
@@ -368,6 +464,13 @@
                     </span>
                     <span>{{ item.namaProduk }}</span>
                   </div>
+                </td>
+                <td data-label="Kategori">
+                  <span v-if="resolveKategoriName(item)" class="kategori-badge">
+                    <span class="material-symbols-rounded" style="font-size: 13px;">category</span>
+                    <span>{{ resolveKategoriName(item) }}</span>
+                  </span>
+                  <span v-else style="color: var(--text-muted); font-size: 12.5px;">-</span>
                 </td>
                 <td data-label="Template Sisi">
                   <button
@@ -448,20 +551,49 @@
                   <div>{{ formError }}</div>
                 </div>
 
-                <div class="form-group">
-                  <label class="form-label" for="produk-nama">
-                    Nama Produk <span class="required">*</span>
-                  </label>
-                  <input
-                    id="produk-nama"
-                    ref="produkNameInput"
-                    v-model="namaProduk"
-                    type="text"
-                    class="form-control"
-                    placeholder="Contoh: Kaos Combed 30s, Payung Lipat, Rompi"
-                    :disabled="saving"
-                    required
-                  />
+                <div class="form-row-2">
+                  <div class="form-group">
+                    <label class="form-label" for="produk-nama">
+                      Nama Produk <span class="required">*</span>
+                    </label>
+                    <input
+                      id="produk-nama"
+                      ref="produkNameInput"
+                      v-model="namaProduk"
+                      type="text"
+                      class="form-control"
+                      placeholder="Contoh: Kaos Combed 30s, Payung Lipat, Rompi"
+                      :disabled="saving"
+                      required
+                    />
+                  </div>
+
+                  <div class="form-group">
+                    <label class="form-label" for="produk-kategori">
+                      Kategori Produk
+                    </label>
+                    <select
+                      id="produk-kategori"
+                      v-model="selectedKategoriKey"
+                      class="form-select"
+                      :disabled="saving"
+                    >
+                      <option value="">-- Pilih Kategori Produk (Opsional) --</option>
+                      <option
+                        v-if="selectedKategoriKey === '__snapshot__'"
+                        value="__snapshot__"
+                      >
+                        {{ snapshotKategoriName }} (Master dihapus)
+                      </option>
+                      <option
+                        v-for="kat in kategoriProdukList"
+                        :key="kat.id"
+                        :value="kat.id"
+                      >
+                        {{ kat.namaKategori }}
+                      </option>
+                    </select>
+                  </div>
                 </div>
 
                 <div class="sisi-header-row" style="margin-bottom: 10px;">
@@ -595,6 +727,7 @@
               <div>
                 <h3 class="modal-title">Template Sisi — {{ detailProduk.namaProduk }}</h3>
                 <div class="form-hint">
+                  <span v-if="resolveKategoriName(detailProduk)">Kategori: {{ resolveKategoriName(detailProduk) }} • </span>
                   {{ getNormalizedTemplates(detailProduk).length }} template sisi terdaftar
                 </div>
               </div>

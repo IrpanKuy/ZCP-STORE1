@@ -64,6 +64,7 @@
         :active-pesanan-count="activePesananCount"
         :sablon-count="activeSablonCount"
         :produk-count="produkList.length"
+        :kategori-count="kategoriProdukList.length"
         :expedisi-count="expedisiList.length"
         :asal-pesanan-count="asalPesananList.length"
         :borongan-badge-count="pendingBoronganCount"
@@ -106,6 +107,7 @@
             v-else-if="currentPage === 'pesanan'"
             :pesanan-list="pesananList"
             :produk-list="produkList"
+            :kategori-produk-list="kategoriProdukList"
             :expedisi-list="expedisiList"
             :asal-pesanan-list="asalPesananList"
             :loading="loadingPesanan"
@@ -123,6 +125,8 @@
             v-else-if="currentPage === 'operasional'"
             :pesanan-list="pesananList"
             :sablon-list="sablonList"
+            :produk-list="produkList"
+            :kategori-produk-list="kategoriProdukList"
             :staff-list="staffList"
             :loading="loadingPesanan"
             :user-role="user.role"
@@ -139,6 +143,8 @@
             v-else-if="currentPage === 'sablon'"
             :sablon-list="sablonList"
             :pesanan-list="pesananList"
+            :produk-list="produkList"
+            :kategori-produk-list="kategoriProdukList"
             :ai-config="aiConfig"
             :loading="loadingSablon"
             :drive-ready="driveReady"
@@ -190,15 +196,18 @@
           <master-data-view
             v-else-if="currentPage === 'master-data'"
             :produk-list="produkList"
+            :kategori-produk-list="kategoriProdukList"
             :expedisi-list="expedisiList"
             :asal-pesanan-list="asalPesananList"
             :loading-produk="loadingProduk"
+            :loading-kategori-produk="loadingKategoriProduk"
             :loading-expedisi="loadingExpedisi"
             :loading-asal-pesanan="loadingAsalPesanan"
             :default-page-size="defaultPageSize"
             @notify="addToast"
             @request-confirm="openConfirm"
             @refresh-produk="loadMasterProduk"
+            @refresh-kategori-produk="loadMasterKategoriProduk"
             @refresh-expedisi="loadMasterExpedisi"
             @refresh-asal-pesanan="loadMasterAsalPesanan"
           ></master-data-view>
@@ -231,12 +240,14 @@
             :default-page-size="defaultPageSize"
             :user-profile="user"
             :ai-config="aiConfig"
+            :drive-config="driveConfig"
             :theme="theme"
             @notify="addToast"
             @toggle-theme="toggleTheme"
             @profile-updated="onProfileUpdated"
             @settings-updated="onSettingsUpdated"
             @ai-config-updated="onAiConfigUpdated"
+            @drive-config-updated="onDriveConfigUpdated"
           ></pengaturan-view>
 
           <coming-soon-view
@@ -255,6 +266,7 @@
       :ai-config="aiConfig"
       :drive-ready="driveReady"
       :produk-list="produkList"
+      :kategori-produk-list="kategoriProdukList"
       :expedisi-list="expedisiList"
       :asal-pesanan-list="asalPesananList"
       :pesanan-list="pesananList"
@@ -263,6 +275,12 @@
       @data-mutated="onAiDataMutated"
       @open-settings="navigatePage('pengaturan')"
     ></ai-chatbot>
+
+    <sablon-save-toast-stack
+      v-if="user"
+      :jobs="sablonSaveJobs"
+      @dismiss="dismissSablonSaveJob"
+    ></sablon-save-toast-stack>
   </div>
 
   <!-- Vue 3 CDN -->
@@ -303,6 +321,7 @@
   <script src="./js/components/SablonFormView.js"></script>
   <script src="./js/components/BoronganView.js"></script>
   <script src="./js/components/MasterProdukPanel.js"></script>
+  <script src="./js/components/MasterKategoriProdukPanel.js"></script>
   <script src="./js/components/MasterExpedisiPanel.js"></script>
   <script src="./js/components/MasterAsalPesananPanel.js"></script>
   <script src="./js/components/MasterDataView.js"></script>
@@ -310,6 +329,7 @@
   <script src="./js/components/ActivityLogView.js"></script>
   <script src="./js/components/PengaturanView.js"></script>
   <script src="./js/components/AiChatbot.js"></script>
+  <script src="./js/components/SablonSaveToastStack.js"></script>
   <script src="./js/components/ComingSoonView.js"></script>
 
   <!-- App Bootstrap -->

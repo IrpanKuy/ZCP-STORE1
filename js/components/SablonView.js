@@ -18,6 +18,18 @@
           return [];
         }
       },
+      produkList: {
+        type: Array,
+        default: function () {
+          return [];
+        }
+      },
+      kategoriProdukList: {
+        type: Array,
+        default: function () {
+          return [];
+        }
+      },
       aiConfig: {
         type: Object,
         default: function () {
@@ -48,6 +60,7 @@
       return {
         searchQuery: '',
         statusFilter: 'all',
+        kategoriFilter: '',
         currentPage: 1,
         localPageSize: this.defaultPageSize,
         busyIds: {},
@@ -64,11 +77,43 @@
       },
       statusFilter: function () {
         this.currentPage = 1;
+      },
+      kategoriFilter: function () {
+        this.currentPage = 1;
       }
     },
     computed: {
       isKaryawan: function () {
         return this.userRole === 'karyawan';
+      },
+      pesananByIdMap: function () {
+        var map = {};
+        for (var i = 0; i < this.pesananList.length; i++) {
+          if (this.pesananList[i] && this.pesananList[i].id) {
+            map[this.pesananList[i].id] = this.pesananList[i];
+          }
+        }
+        return map;
+      },
+      kategoriFilterOptions: function () {
+        var map = {};
+        var names = [];
+        this.kategoriProdukList.forEach(function (k) {
+          if (k && k.namaKategori && !map[k.namaKategori]) {
+            map[k.namaKategori] = true;
+            names.push(k.namaKategori);
+          }
+        });
+        var self = this;
+        this.sablonList.forEach(function (s) {
+          self.getSablonKategoriNames(s).forEach(function (kName) {
+            if (kName && !map[kName]) {
+              map[kName] = true;
+              names.push(kName);
+            }
+          });
+        });
+        return names.sort();
       },
       activeSablonCount: function () {
         return this.sablonList.filter(function (s) {
@@ -83,14 +128,22 @@
       filteredList: function () {
         var q = this.searchQuery.trim().toLowerCase();
         var status = this.statusFilter;
+        var katFilter = this.kategoriFilter;
+        var self = this;
 
         return this.sablonList.filter(function (sablon) {
           if (status === 'active' && sablon.statusSelesai) return false;
           if (status === 'done' && !sablon.statusSelesai) return false;
+
+          var katNames = self.getSablonKategoriNames(sablon);
+          if (katFilter && katNames.indexOf(katFilter) === -1) return false;
           if (!q) return true;
 
           var matchNama = (sablon.namaSablon || '').toLowerCase().indexOf(q) !== -1;
           var matchCatatan = (sablon.catatan || '').toLowerCase().indexOf(q) !== -1;
+          var matchKategori = katNames.some(function (kName) {
+            return kName.toLowerCase().indexOf(q) !== -1;
+          });
           var matchOrder =
             Array.isArray(sablon.pesananItems) &&
             sablon.pesananItems.some(function (item) {
@@ -99,7 +152,7 @@
                 (item.namaProduk || '').toLowerCase().indexOf(q) !== -1
               );
             });
-          return matchNama || matchCatatan || matchOrder;
+          return matchNama || matchCatatan || matchKategori || matchOrder;
         });
       },
       paginatedList: function () {
@@ -112,6 +165,47 @@
     methods: {
       formatDate: function (ts) {
         return global.ZcpPesananService.formatDate(ts);
+      },
+      resolveKategoriByIdOrName: function (kategoriId, fallbackName) {
+        if (kategoriId) {
+          for (var i = 0; i < this.kategoriProdukList.length; i++) {
+            if (this.kategoriProdukList[i].id === kategoriId) {
+              return this.kategoriProdukList[i].namaKategori || fallbackName || '';
+            }
+          }
+        }
+        return fallbackName || '';
+      },
+      getSablonKategoriNames: function (sablon) {
+        var seen = {};
+        var names = [];
+        var items = Array.isArray(sablon && sablon.pesananItems) ? sablon.pesananItems : [];
+        for (var i = 0; i < items.length; i++) {
+          var item = items[i] || {};
+          var order = item.pesananId ? this.pesananByIdMap[item.pesananId] : null;
+          var produkId = (order && order.produkId) || '';
+          var namaProduk = (order && order.namaProduk) || item.namaProduk || '';
+          var matchedProd = null;
+          for (var pIdx = 0; pIdx < this.produkList.length; pIdx++) {
+            var p = this.produkList[pIdx];
+            if ((produkId && p.id === produkId) || (namaProduk && p.namaProduk === namaProduk)) {
+              matchedProd = p;
+              break;
+            }
+          }
+          var katName = '';
+          if (matchedProd) {
+            katName = this.resolveKategoriByIdOrName(matchedProd.kategoriId, matchedProd.namaKategori);
+          }
+          if (!katName && order) {
+            katName = this.resolveKategoriByIdOrName(order.kategoriId, order.namaKategori);
+          }
+          if (katName && !seen[katName]) {
+            seen[katName] = true;
+            names.push(katName);
+          }
+        }
+        return names;
       },
       checkedCount: function (sablon) {
         if (!Array.isArray(sablon.perulanganChecks)) return 0;
@@ -367,6 +461,13 @@
                 <option value="done">Selesai</option>
               </select>
 
+              <select v-model="kategoriFilter" class="filter-select" aria-label="Filter kategori">
+                <option value="">Semua Kategori</option>
+                <option v-for="kName in kategoriFilterOptions" :key="kName" :value="kName">
+                  {{ kName }}
+                </option>
+              </select>
+
               <button v-if="!isKaryawan" type="button" class="btn btn-primary" @click="openCreatePage">
                 <span class="material-symbols-rounded" style="font-size: 19px;">add</span>
                 <span>{{ hasUnsavedDrafts ? 'Lanjutkan Buat Sablon' : 'Tambah Sablon' }}</span>
@@ -383,16 +484,16 @@
             <div class="empty-state-icon">
               <span class="material-symbols-rounded">print</span>
             </div>
-            <h3>{{ (searchQuery || statusFilter !== 'all') ? 'Data sablon tidak ditemukan' : 'Belum ada data sablon' }}</h3>
+            <h3>{{ (searchQuery || statusFilter !== 'all' || kategoriFilter) ? 'Data sablon tidak ditemukan' : 'Belum ada data sablon' }}</h3>
             <p>
               {{
-                (searchQuery || statusFilter !== 'all')
+                (searchQuery || statusFilter !== 'all' || kategoriFilter)
                   ? 'Coba ubah filter atau kata kunci pencarian di atas.'
                   : (isKaryawan ? 'Belum ada data sablon untuk diproses.' : 'Buat data sablon baru, upload film sablon, dan gunakan AI untuk mengisi jumlah sisi otomatis.')
               }}
             </p>
             <button
-              v-if="!isKaryawan && !(searchQuery || statusFilter !== 'all')"
+              v-if="!isKaryawan && !(searchQuery || statusFilter !== 'all' || kategoriFilter)"
               type="button"
               class="btn btn-primary"
               @click="openCreatePage"

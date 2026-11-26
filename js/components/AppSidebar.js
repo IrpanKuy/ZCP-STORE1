@@ -15,6 +15,7 @@
       activePesananCount: { type: Number, default: 0 },
       sablonCount: { type: Number, default: 0 },
       produkCount: { type: Number, default: 0 },
+      kategoriCount: { type: Number, default: 0 },
       expedisiCount: { type: Number, default: 0 },
       asalPesananCount: { type: Number, default: 0 },
       boronganBadgeCount: { type: Number, default: 0 },
@@ -23,7 +24,7 @@
     emits: ['navigate', 'close', 'logout'],
     computed: {
       masterTotal: function () {
-        return this.produkCount + this.expedisiCount + this.asalPesananCount;
+        return this.produkCount + this.kategoriCount + this.expedisiCount + this.asalPesananCount;
       },
       avatarInitial: function () {
         var source = this.userName || this.userEmail;

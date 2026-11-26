@@ -1,12 +1,11 @@
 /**
- * Konfigurasi Firebase & Google Apps Script (Google Drive) ZCP STORE
+ * Konfigurasi Firebase & Google Drive API v3 ZCP STORE
  *
  * Cara mengisi:
  * 1. Firebase: Buka https://console.firebase.google.com > Project Settings > Your apps > Web app (</>).
  * 2. Aktifkan Authentication (Email/Password) lalu buat akun admin di tab Users.
  * 3. Aktifkan Cloud Firestore lalu pasang isi file firestore.rules.
- * 4. Upload File (Google Drive): Deploy file code.gs di https://script.google.com sebagai Web App,
- *    lalu tempel URL hasil deploy (/exec) ke bagian gasConfig.gasUrl di bawah ini.
+ * 4. Upload File (Google Drive API): Atur kredensial OAuth Google Drive API di menu Pengaturan (Superadmin).
  */
 (function (global) {
   'use strict';
@@ -21,13 +20,31 @@
     measurementId: "G-03X1VXZR51"
   };
 
-  // =========================================================================
-  // TEMPEL URL GOOGLE APPS SCRIPT (GAS_URL) HASIL DEPLOY code.gs DI BAWAH INI
-  // =========================================================================
-  const gasConfig = {
-    gasUrl: 'https://script.google.com/macros/s/AKfycbxYkNbeeE80s7lb3nIMjleRIS5bPljz-LtFSet4c2V0Dbh3mzxQl6AaRvF6agD_68Zf8w/exec', // Contoh: 'https://script.google.com/macros/s/AKfycb.../exec'
-    apiSecret: '' // Opsional: samakan dengan API_SECRET di code.gs jika diaktifkan
+  var DEFAULT_DRIVE_ROOT_FOLDER = 'ZCP_STORE_FILES';
+  var runtimeDriveConfig = {
+    clientId: '',
+    clientSecret: '',
+    refreshToken: '',
+    accessToken: '',
+    rootFolderId: '',
+    rootFolderName: DEFAULT_DRIVE_ROOT_FOLDER
   };
+
+  function normalizeDriveConfig(cfg) {
+    var src = cfg && typeof cfg === 'object' ? cfg : {};
+    var rootName =
+      typeof src.rootFolderName === 'string' && src.rootFolderName.trim()
+        ? src.rootFolderName.trim()
+        : DEFAULT_DRIVE_ROOT_FOLDER;
+    return {
+      clientId: typeof src.clientId === 'string' ? src.clientId.trim() : '',
+      clientSecret: typeof src.clientSecret === 'string' ? src.clientSecret.trim() : '',
+      refreshToken: typeof src.refreshToken === 'string' ? src.refreshToken.trim() : '',
+      accessToken: typeof src.accessToken === 'string' ? src.accessToken.trim() : '',
+      rootFolderId: typeof src.rootFolderId === 'string' ? src.rootFolderId.trim() : '',
+      rootFolderName: rootName
+    };
+  }
 
   function isConfigured() {
     if (typeof firebase === 'undefined') {
@@ -87,19 +104,20 @@
   };
 
   global.ZcpDriveConfig = {
-    getGasUrl: function () {
-      return typeof gasConfig.gasUrl === 'string' ? gasConfig.gasUrl.trim() : '';
+    setConfig: function (cfg) {
+      runtimeDriveConfig = normalizeDriveConfig(cfg);
+      return this.getConfig();
     },
-    getApiSecret: function () {
-      return typeof gasConfig.apiSecret === 'string' ? gasConfig.apiSecret : '';
+    getConfig: function () {
+      return Object.assign({}, runtimeDriveConfig);
     },
-    isConfigured: function () {
-      var url = this.getGasUrl();
-      return (
-        url.length > 0 &&
-        url.indexOf('MASUKKAN_') !== 0 &&
-        /^https:\/\/script\.google\.com\//i.test(url)
-      );
+    hasRefreshCredentials: function (cfg) {
+      var c = cfg ? normalizeDriveConfig(cfg) : runtimeDriveConfig;
+      return Boolean(c.clientId && c.clientSecret && c.refreshToken);
+    },
+    isConfigured: function (cfg) {
+      var c = cfg ? normalizeDriveConfig(cfg) : runtimeDriveConfig;
+      return Boolean((c.clientId && c.clientSecret && c.refreshToken) || c.accessToken);
     }
   };
 })(window);

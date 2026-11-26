@@ -47,12 +47,12 @@
       ActivityLogView: global.ZcpComponents.ActivityLogView,
       PengaturanView: global.ZcpComponents.PengaturanView,
       AiChatbot: global.ZcpComponents.AiChatbot,
+      SablonSaveToastStack: global.ZcpComponents.SablonSaveToastStack,
       ComingSoonView: global.ZcpComponents.ComingSoonView
     },
     data: function () {
       return {
         firebaseReady: Boolean(global.ZcpFirebase && global.ZcpFirebase.isConfigured()),
-        driveReady: Boolean(global.ZcpDriveConfig && global.ZcpDriveConfig.isConfigured()),
         authLoading: true,
         user: null,
         currentPage: 'dashboard',
@@ -63,9 +63,20 @@
             'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
           geminiApiKey: ''
         },
+        driveConfig: {
+          clientId: '',
+          clientSecret: '',
+          refreshToken: '',
+          accessToken: '',
+          rootFolderId: '',
+          rootFolderName:
+            (global.ZcpSettingsService && global.ZcpSettingsService.DEFAULT_DRIVE_ROOT_FOLDER) ||
+            'ZCP_STORE_FILES'
+        },
         theme: detectInitialTheme(),
         sidebarOpen: false,
         produkList: [],
+        kategoriProdukList: [],
         expedisiList: [],
         asalPesananList: [],
         pesananList: [],
@@ -74,6 +85,7 @@
         usersList: [],
         logsList: [],
         loadingProduk: false,
+        loadingKategoriProduk: false,
         loadingExpedisi: false,
         loadingAsalPesanan: false,
         loadingPesanan: false,
@@ -95,10 +107,15 @@
         unsubSablon: null,
         unsubBoronganRequests: null,
         sablonFormState: global.ZcpSablonQueueService.formState,
-        sablonAiQueue: global.ZcpSablonQueueService.aiQueue
+        sablonAiQueue: global.ZcpSablonQueueService.aiQueue,
+        sablonSaveJobs: global.ZcpSablonQueueService.saveJobs
       };
     },
     computed: {
+      driveReady: function () {
+        var c = this.driveConfig || {};
+        return Boolean((c.clientId && c.clientSecret && c.refreshToken) || c.accessToken);
+      },
       activePageMeta: function () {
         if (this.currentPage === 'sablon-form' && this.sablonFormState.mode === 'edit') {
           return { title: 'Edit Data Sablon', breadcrumb: 'Manajemen Sablon / Edit Sablon' };
@@ -227,9 +244,27 @@
           geminiApiKey: (cfg && cfg.geminiApiKey) || ''
         };
       },
+      onDriveConfigUpdated: function (cfg) {
+        var defaultRoot =
+          (global.ZcpSettingsService && global.ZcpSettingsService.DEFAULT_DRIVE_ROOT_FOLDER) ||
+          'ZCP_STORE_FILES';
+        var nextCfg = {
+          clientId: (cfg && cfg.clientId) || '',
+          clientSecret: (cfg && cfg.clientSecret) || '',
+          refreshToken: (cfg && cfg.refreshToken) || '',
+          accessToken: (cfg && cfg.accessToken) || '',
+          rootFolderId: (cfg && cfg.rootFolderId) || '',
+          rootFolderName: (cfg && cfg.rootFolderName) || defaultRoot
+        };
+        this.driveConfig = nextCfg;
+        if (global.ZcpDriveService && typeof global.ZcpDriveService.setConfig === 'function') {
+          global.ZcpDriveService.setConfig(nextCfg);
+        }
+      },
       onAiDataMutated: function (info) {
         if (info && info.touchedMaster) {
           this.loadMasterProduk();
+          this.loadMasterKategoriProduk();
           this.loadMasterExpedisi();
           this.loadMasterAsalPesanan();
         }
@@ -243,6 +278,18 @@
       },
       openEditSablonPage: function (sablon) {
         if ((this.user && this.user.role === 'karyawan') || !sablon) return;
+        if (
+          global.ZcpSablonQueueService &&
+          typeof global.ZcpSablonQueueService.isSablonIdInSaveQueue === 'function' &&
+          global.ZcpSablonQueueService.isSablonIdInSaveQueue(sablon.id)
+        ) {
+          if (global.ZcpAlert) {
+            global.ZcpAlert.warning(
+              'Data sablon ini sedang dalam proses simpan di latar belakang. Tunggu hingga selesai sebelum mengedit lagi.'
+            );
+          }
+          return;
+        }
         if (this.sablonAiQueue.running) {
           if (global.ZcpAlert) {
             global.ZcpAlert.warning(
@@ -264,6 +311,11 @@
       dismissSablonAiQueue: function () {
         if (global.ZcpSablonQueueService) {
           global.ZcpSablonQueueService.dismissNavbarStatus();
+        }
+      },
+      dismissSablonSaveJob: function (jobId) {
+        if (global.ZcpSablonQueueService) {
+          global.ZcpSablonQueueService.dismissSaveJob(jobId);
         }
       },
       runSablonAiSingle: function (draftLocalId) {
@@ -391,6 +443,7 @@
 
         // Ambil 1x via .get() untuk data konfigurasi & master yang jarang berubah
         this.loadMasterProduk();
+        this.loadMasterKategoriProduk();
         this.loadMasterExpedisi();
         this.loadMasterAsalPesanan();
         this.loadUsers(false);
@@ -410,6 +463,14 @@
             .catch(function () {
               // Abaikan jika aturan AI config belum terbit atau belum diisi
             });
+
+          global.ZcpSettingsService.fetchDriveConfig()
+            .then(function (driveCfg) {
+              self.onDriveConfigUpdated(driveCfg);
+            })
+            .catch(function () {
+              // Abaikan jika aturan Drive config belum terbit atau belum diisi
+            });
         }
 
         this.subscribePesananList();
@@ -427,6 +488,20 @@
           });
         } finally {
           this.loadingProduk = false;
+        }
+      },
+      loadMasterKategoriProduk: async function () {
+        this.loadingKategoriProduk = true;
+        try {
+          this.kategoriProdukList = await global.ZcpMasterService.fetchKategoriProduk();
+        } catch (err) {
+          this.addToast({
+            type: 'error',
+            message:
+              'Gagal memuat Master Kategori Produk: ' + ((err && err.message) || 'Akses ditolak')
+          });
+        } finally {
+          this.loadingKategoriProduk = false;
         }
       },
       loadMasterExpedisi: async function () {
@@ -596,6 +671,7 @@
           global.ZcpSablonQueueService.cleanupOnLogout();
         }
         this.produkList = [];
+        this.kategoriProdukList = [];
         this.expedisiList = [];
         this.asalPesananList = [];
         this.pesananList = [];
@@ -612,6 +688,7 @@
         this.pesananLimit = 150;
         this.sablonLimit = 150;
         this.loadingProduk = false;
+        this.loadingKategoriProduk = false;
         this.loadingExpedisi = false;
         this.loadingAsalPesanan = false;
         this.loadingPesanan = false;
@@ -626,6 +703,19 @@
             'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
           geminiApiKey: ''
         };
+        this.driveConfig = {
+          clientId: '',
+          clientSecret: '',
+          refreshToken: '',
+          accessToken: '',
+          rootFolderId: '',
+          rootFolderName:
+            (global.ZcpSettingsService && global.ZcpSettingsService.DEFAULT_DRIVE_ROOT_FOLDER) ||
+            'ZCP_STORE_FILES'
+        };
+        if (global.ZcpDriveService && typeof global.ZcpDriveService.setConfig === 'function') {
+          global.ZcpDriveService.setConfig(null);
+        }
       },
       requestLogout: function () {
         var self = this;

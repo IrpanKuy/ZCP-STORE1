@@ -7,11 +7,18 @@
     name: 'MasterDataView',
     components: {
       MasterProdukPanel: global.ZcpComponents.MasterProdukPanel,
+      MasterKategoriProdukPanel: global.ZcpComponents.MasterKategoriProdukPanel,
       MasterExpedisiPanel: global.ZcpComponents.MasterExpedisiPanel,
       MasterAsalPesananPanel: global.ZcpComponents.MasterAsalPesananPanel
     },
     props: {
       produkList: {
+        type: Array,
+        default: function () {
+          return [];
+        }
+      },
+      kategoriProdukList: {
         type: Array,
         default: function () {
           return [];
@@ -30,6 +37,7 @@
         }
       },
       loadingProduk: { type: Boolean, default: false },
+      loadingKategoriProduk: { type: Boolean, default: false },
       loadingExpedisi: { type: Boolean, default: false },
       loadingAsalPesanan: { type: Boolean, default: false },
       defaultPageSize: {
@@ -41,6 +49,7 @@
       'notify',
       'request-confirm',
       'refresh-produk',
+      'refresh-kategori-produk',
       'refresh-expedisi',
       'refresh-asal-pesanan'
     ],
@@ -80,7 +89,7 @@
             </div>
             <div class="kpi-divider"></div>
             <div class="kpi-footer">
-              <span class="kpi-highlight">Aktif</span> di master data produk
+              <span class="kpi-highlight">{{ kategoriProdukList.length }} kategori</span> produk terdaftar
             </div>
           </div>
 
@@ -150,6 +159,19 @@
           <button
             type="button"
             role="tab"
+            :aria-selected="activeTab === 'kategori-produk'"
+            class="tab-btn"
+            :class="{ active: activeTab === 'kategori-produk' }"
+            @click="activeTab = 'kategori-produk'"
+          >
+            <span class="material-symbols-rounded" style="font-size: 19px;">category</span>
+            <span>Master Kategori Produk</span>
+            <span class="tab-count">{{ kategoriProdukList.length }}</span>
+          </button>
+
+          <button
+            type="button"
+            role="tab"
             :aria-selected="activeTab === 'expedisi'"
             class="tab-btn"
             :class="{ active: activeTab === 'expedisi' }"
@@ -177,12 +199,23 @@
         <master-produk-panel
           v-if="activeTab === 'produk'"
           :produk-list="produkList"
+          :kategori-produk-list="kategoriProdukList"
           :loading="loadingProduk"
           :default-page-size="defaultPageSize"
           @notify="$emit('notify', $event)"
           @request-confirm="$emit('request-confirm', $event)"
           @changed="$emit('refresh-produk')"
         ></master-produk-panel>
+
+        <master-kategori-produk-panel
+          v-else-if="activeTab === 'kategori-produk'"
+          :kategori-list="kategoriProdukList"
+          :loading="loadingKategoriProduk"
+          :default-page-size="defaultPageSize"
+          @notify="$emit('notify', $event)"
+          @request-confirm="$emit('request-confirm', $event)"
+          @changed="$emit('refresh-kategori-produk')"
+        ></master-kategori-produk-panel>
 
         <master-expedisi-panel
           v-else-if="activeTab === 'expedisi'"

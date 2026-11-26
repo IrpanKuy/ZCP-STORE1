@@ -20,6 +20,12 @@
           return [];
         }
       },
+      kategoriProdukList: {
+        type: Array,
+        default: function () {
+          return [];
+        }
+      },
       expedisiList: {
         type: Array,
         default: function () {
@@ -46,6 +52,7 @@
       return {
         searchQuery: '',
         statusFilter: 'all',
+        kategoriFilter: '',
         produkFilter: '',
         asalFilter: '',
         currentPage: 1,
@@ -53,6 +60,7 @@
         modalOpen: false,
         editingOrder: null,
         saving: false,
+        togglingSablonMap: {},
         uploadProgressText: '',
         formError: '',
         isDragging: false,
@@ -71,6 +79,7 @@
           snapshotExpedisiId: '',
           snapshotExpedisiName: '',
           catatan: '',
+          anggapSablonSelesai: false,
           existingFiles: [],
           removedFileIds: [],
           stagedFiles: []
@@ -89,6 +98,9 @@
       statusFilter: function () {
         this.currentPage = 1;
       },
+      kategoriFilter: function () {
+        this.currentPage = 1;
+      },
       produkFilter: function () {
         this.currentPage = 1;
       },
@@ -99,6 +111,25 @@
     computed: {
       isReadOnly: function () {
         return this.userRole === 'karyawan';
+      },
+      kategoriFilterOptions: function () {
+        var map = {};
+        var names = [];
+        this.kategoriProdukList.forEach(function (k) {
+          if (k && k.namaKategori && !map[k.namaKategori]) {
+            map[k.namaKategori] = true;
+            names.push(k.namaKategori);
+          }
+        });
+        var self = this;
+        this.pesananList.forEach(function (o) {
+          var kName = self.resolveOrderKategoriName(o);
+          if (kName && !map[kName]) {
+            map[kName] = true;
+            names.push(kName);
+          }
+        });
+        return names.sort();
       },
       produkFilterOptions: function () {
         var map = {};
@@ -137,18 +168,23 @@
       filteredList: function () {
         var q = this.searchQuery.trim().toLowerCase();
         var status = this.statusFilter;
+        var katFilter = this.kategoriFilter;
         var produk = this.produkFilter;
         var asal = this.asalFilter;
+        var self = this;
 
         return this.pesananList.filter(function (order) {
+          var katName = self.resolveOrderKategoriName(order);
           if (status === 'active' && order.statusSelesai) return false;
           if (status === 'done' && !order.statusSelesai) return false;
+          if (katFilter && katName !== katFilter) return false;
           if (produk && order.namaProduk !== produk) return false;
           if (asal && order.namaAsalPesanan !== asal) return false;
           if (!q) return true;
 
           var matchPemesan = (order.namaPemesan || '').toLowerCase().indexOf(q) !== -1;
           var matchProduk = (order.namaProduk || '').toLowerCase().indexOf(q) !== -1;
+          var matchKategori = katName.toLowerCase().indexOf(q) !== -1;
           var matchTemplate = (order.namaTemplateSisi || '').toLowerCase().indexOf(q) !== -1;
           var matchAsal = (order.namaAsalPesanan || '').toLowerCase().indexOf(q) !== -1;
           var matchExpedisi = (order.namaExpedisi || '').toLowerCase().indexOf(q) !== -1;
@@ -162,6 +198,7 @@
           return (
             matchPemesan ||
             matchProduk ||
+            matchKategori ||
             matchTemplate ||
             matchAsal ||
             matchExpedisi ||
@@ -260,6 +297,32 @@
       formatFileSize: function (bytes) {
         return global.ZcpPesananService.formatFileSize(bytes);
       },
+      resolveKategoriByIdOrName: function (kategoriId, fallbackName) {
+        if (kategoriId) {
+          for (var i = 0; i < this.kategoriProdukList.length; i++) {
+            if (this.kategoriProdukList[i].id === kategoriId) {
+              return this.kategoriProdukList[i].namaKategori || fallbackName || '';
+            }
+          }
+        }
+        return fallbackName || '';
+      },
+      resolveOrderKategoriName: function (order) {
+        if (!order) return '';
+        var matchedProd = null;
+        for (var i = 0; i < this.produkList.length; i++) {
+          var p = this.produkList[i];
+          if ((order.produkId && p.id === order.produkId) || (order.namaProduk && p.namaProduk === order.namaProduk)) {
+            matchedProd = p;
+            break;
+          }
+        }
+        if (matchedProd) {
+          var fromProd = this.resolveKategoriByIdOrName(matchedProd.kategoriId, matchedProd.namaKategori);
+          if (fromProd) return fromProd;
+        }
+        return this.resolveKategoriByIdOrName(order.kategoriId, order.namaKategori);
+      },
       getProductTemplateCount: function (produk) {
         if (global.ZcpMasterService && global.ZcpMasterService.normalizeTemplateSisiList) {
           return global.ZcpMasterService.normalizeTemplateSisiList(
@@ -298,6 +361,7 @@
           snapshotExpedisiId: '',
           snapshotExpedisiName: '',
           catatan: '',
+          anggapSablonSelesai: false,
           existingFiles: [],
           removedFileIds: [],
           stagedFiles: []
@@ -374,6 +438,7 @@
           snapshotExpedisiId: order.expedisiId || '',
           snapshotExpedisiName: order.namaExpedisi || '',
           catatan: order.catatan || '',
+          anggapSablonSelesai: Boolean(order.anggapSablonSelesai),
           existingFiles: Array.isArray(order.fileDesigns)
             ? order.fileDesigns.map(function (f) {
                 return Object.assign({}, f);
@@ -541,7 +606,7 @@
 
         if (this.form.stagedFiles.length > 0 && !this.driveReady) {
           this.formError =
-            'Google Apps Script (gasUrl) belum diisi di js/firebase-config.js, sehingga file desain tidak bisa diupload. Hapus file terpilih jika ingin menyimpan tanpa file.';
+            'Konfigurasi Google Drive API belum diisi di menu Pengaturan, sehingga file desain tidak bisa diupload. Hapus file terpilih jika ingin menyimpan tanpa file.';
           return;
         }
 
@@ -557,8 +622,16 @@
               rawFiles,
               'designs',
               function (prog) {
+                var pct = typeof prog.percent === 'number' ? ' (' + prog.percent + '%)' : '';
                 self.uploadProgressText =
-                  'Mengupload file ' + prog.current + '/' + prog.total + ': ' + prog.fileName + '...';
+                  'Mengupload file ' +
+                  prog.current +
+                  '/' +
+                  prog.total +
+                  ': ' +
+                  prog.fileName +
+                  pct +
+                  '...';
               }
             );
           }
@@ -570,12 +643,27 @@
           });
           var mergedFiles = keptExisting.concat(uploadedFiles);
 
+          var kategoriId = '';
+          var namaKategori = '';
+          if (this.selectedProdukObj) {
+            kategoriId = this.selectedProdukObj.kategoriId || '';
+            namaKategori = this.resolveKategoriByIdOrName(
+              this.selectedProdukObj.kategoriId,
+              this.selectedProdukObj.namaKategori
+            );
+          } else if (this.editingOrder) {
+            kategoriId = this.editingOrder.kategoriId || '';
+            namaKategori = this.resolveOrderKategoriName(this.editingOrder);
+          }
+
           var payload = {
             namaPemesan: namaPemesan,
             asalPesananId: asalPesananId,
             namaAsalPesanan: namaAsalPesanan,
             produkId: produkId,
             namaProduk: namaProduk,
+            kategoriId: kategoriId,
+            namaKategori: namaKategori,
             templateSisiId: tpl.id === '__snapshot_tpl__' ? '' : tpl.id,
             namaTemplateSisi: tpl.namaTemplate,
             namaSisi: tpl.sisiList.slice(),
@@ -584,7 +672,8 @@
             fileDesigns: mergedFiles,
             expedisiId: expedisiId,
             namaExpedisi: namaExpedisi,
-            catatan: this.form.catatan
+            catatan: this.form.catatan,
+            anggapSablonSelesai: Boolean(this.form.anggapSablonSelesai)
           };
 
           if (this.editingOrder) {
@@ -623,6 +712,27 @@
         } finally {
           this.saving = false;
           this.uploadProgressText = '';
+        }
+      },
+      onToggleAnggapSablonSelesai: async function (order) {
+        if (this.isReadOnly || !order || this.togglingSablonMap[order.id]) return;
+        var nextVal = !order.anggapSablonSelesai;
+        this.togglingSablonMap[order.id] = true;
+        try {
+          await global.ZcpPesananService.toggleAnggapSablonSelesai(order.id, nextVal, order);
+          this.$emit('notify', {
+            type: nextVal ? 'success' : 'info',
+            message: nextVal
+              ? 'Semua sablon "' + order.namaPemesan + '" dianggap selesai (100% di Operasional).'
+              : 'Mode anggap sablon selesai untuk "' + order.namaPemesan + '" dinonaktifkan.'
+          });
+        } catch (err) {
+          this.$emit('notify', {
+            type: 'error',
+            message: (err && err.message) || 'Gagal mengubah status anggap sablon selesai.'
+          });
+        } finally {
+          this.togglingSablonMap[order.id] = false;
         }
       },
       confirmDelete: function (order) {
@@ -757,6 +867,13 @@
                 </option>
               </select>
 
+              <select v-model="kategoriFilter" class="filter-select" aria-label="Filter kategori">
+                <option value="">Semua Kategori</option>
+                <option v-for="kName in kategoriFilterOptions" :key="kName" :value="kName">
+                  {{ kName }}
+                </option>
+              </select>
+
               <select v-model="produkFilter" class="filter-select" aria-label="Filter produk">
                 <option value="">Semua Produk</option>
                 <option v-for="pName in produkFilterOptions" :key="pName" :value="pName">
@@ -780,16 +897,16 @@
             <div class="empty-state-icon">
               <span class="material-symbols-rounded">shopping_bag</span>
             </div>
-            <h3>{{ (searchQuery || statusFilter !== 'all' || produkFilter || asalFilter) ? 'Pesanan tidak ditemukan' : 'Belum ada data pesanan' }}</h3>
+            <h3>{{ (searchQuery || statusFilter !== 'all' || kategoriFilter || produkFilter || asalFilter) ? 'Pesanan tidak ditemukan' : 'Belum ada data pesanan' }}</h3>
             <p>
               {{
-                (searchQuery || statusFilter !== 'all' || produkFilter || asalFilter)
+                (searchQuery || statusFilter !== 'all' || kategoriFilter || produkFilter || asalFilter)
                   ? 'Coba ubah kata kunci pencarian atau reset filter di atas.'
                   : (isReadOnly ? 'Belum ada data pesanan yang tercatat.' : 'Tambahkan pesanan pertama dengan memilih produk, template sisi, asal pesanan, dan expedisi.')
               }}
             </p>
             <button
-              v-if="!isReadOnly && !(searchQuery || statusFilter !== 'all' || produkFilter || asalFilter)"
+              v-if="!isReadOnly && !(searchQuery || statusFilter !== 'all' || kategoriFilter || produkFilter || asalFilter)"
               type="button"
               class="btn btn-primary"
               @click="openAddModal"
@@ -841,6 +958,9 @@
                   <td class="sisi-cell" data-label="Produk & Template">
                     <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 6px;">
                       <strong>{{ order.namaProduk }}</strong>
+                      <span v-if="resolveOrderKategoriName(order)" class="kategori-badge">
+                        {{ resolveOrderKategoriName(order) }}
+                      </span>
                       <span v-if="order.namaTemplateSisi" class="template-badge">
                         {{ order.namaTemplateSisi }}
                       </span>
@@ -874,12 +994,39 @@
                     <span class="chip">{{ order.namaExpedisi }}</span>
                   </td>
                   <td data-label="Status">
-                    <span class="status-badge" :class="order.statusSelesai ? 'done' : 'active'">
-                      <span class="material-symbols-rounded" style="font-size: 15px;">
-                        {{ order.statusSelesai ? 'check_circle' : 'schedule' }}
+                    <div style="display: flex; flex-direction: column; gap: 6px; align-items: flex-start;">
+                      <span class="status-badge" :class="order.statusSelesai ? 'done' : 'active'">
+                        <span class="material-symbols-rounded" style="font-size: 15px;">
+                          {{ order.statusSelesai ? 'check_circle' : 'schedule' }}
+                        </span>
+                        <span>{{ order.statusSelesai ? 'Selesai' : 'Diproses' }}</span>
                       </span>
-                      <span>{{ order.statusSelesai ? 'Selesai' : 'Diproses' }}</span>
-                    </span>
+                      <button
+                        v-if="!isReadOnly"
+                        type="button"
+                        class="toggle-switch-inline"
+                        :class="{ 'is-on': order.anggapSablonSelesai }"
+                        role="switch"
+                        :aria-checked="Boolean(order.anggapSablonSelesai)"
+                        :disabled="Boolean(togglingSablonMap[order.id])"
+                        title="Jika ON, progres seluruh sisi sablon pada pesanan ini dianggap 100% selesai di Operasional"
+                        @click="onToggleAnggapSablonSelesai(order)"
+                      >
+                        <span class="toggle-switch-track">
+                          <span class="toggle-switch-thumb"></span>
+                        </span>
+                        <span class="toggle-switch-label">
+                          Sablon Selesai: {{ order.anggapSablonSelesai ? 'ON' : 'OFF' }}
+                        </span>
+                      </button>
+                      <span
+                        v-else-if="order.anggapSablonSelesai"
+                        class="status-badge done"
+                        style="font-size: 11px;"
+                      >
+                        Sablon Dianggap Selesai
+                      </span>
+                    </div>
                   </td>
                   <td data-label="Dibuat">{{ formatDate(order.createdAt) }}</td>
                   <td v-if="!isReadOnly" class="col-actions" data-label="Aksi">
@@ -1150,7 +1297,7 @@
                   <div v-if="!driveReady" class="alert alert-warning" style="margin-bottom: 10px;">
                     <span class="material-symbols-rounded">cloud_off</span>
                     <div>
-                      <code>gasConfig.gasUrl</code> belum diisi di <code>js/firebase-config.js</code>.
+                      Konfigurasi Google Drive API belum diisi di menu <strong>Pengaturan</strong>.
                       Pesanan tetap dapat disimpan tanpa upload file desain.
                     </div>
                   </div>
@@ -1177,7 +1324,7 @@
                       Klik atau seret file desain ke sini
                     </div>
                     <div class="upload-dropzone-sub">
-                      Mendukung PNG, JPG/JPEG, PDF (maks. 75 MB per file) — disimpan ke Google Drive
+                      Mendukung PNG, JPG/JPEG, PDF (maks. 100 MB per file) — disimpan ke Google Drive
                     </div>
                   </div>
 
@@ -1262,6 +1409,28 @@
                       </button>
                     </div>
                   </div>
+                </div>
+
+                <div class="form-group">
+                  <label class="toggle-switch-box" :class="{ 'is-on': form.anggapSablonSelesai }">
+                    <input
+                      v-model="form.anggapSablonSelesai"
+                      type="checkbox"
+                      :disabled="saving"
+                      style="display: none;"
+                    />
+                    <span class="toggle-switch-track">
+                      <span class="toggle-switch-thumb"></span>
+                    </span>
+                    <div style="flex: 1;">
+                      <div style="font-size: 13.5px; font-weight: 600;">
+                        Anggap Semua Sablon Selesai ({{ form.anggapSablonSelesai ? 'ON' : 'OFF' }})
+                      </div>
+                      <div class="form-hint">
+                        Jika aktif, progress bar sablon untuk seluruh sisi pada pesanan ini langsung penuh 100% di menu Operasional (mis. 20/20).
+                      </div>
+                    </div>
+                  </label>
                 </div>
 
                 <div class="form-group" style="margin-bottom: 0;">
