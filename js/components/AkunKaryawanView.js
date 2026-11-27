@@ -36,7 +36,8 @@
           email: '',
           password: '',
           role: 'karyawan',
-          active: true
+          active: true,
+          boronganPerSisi: 0
         }
       };
     },
@@ -94,6 +95,10 @@
       formatDate: function (ts) {
         return global.ZcpMasterService ? global.ZcpMasterService.formatDate(ts) : '-';
       },
+      formatRupiah: function (amount) {
+        var num = Math.max(0, Math.round(Number(amount) || 0));
+        return 'Rp ' + num.toLocaleString('id-ID');
+      },
       roleLabel: function (role) {
         if (role === 'superadmin') return 'Superadmin';
         if (role === 'admin') return 'Admin';
@@ -108,7 +113,8 @@
           email: '',
           password: '',
           role: 'karyawan',
-          active: true
+          active: true,
+          boronganPerSisi: 0
         };
         this.modalOpen = true;
         this.$nextTick(function () {
@@ -125,7 +131,8 @@
           email: user.email || '',
           password: '',
           role: user.role || 'karyawan',
-          active: user.active !== false
+          active: user.active !== false,
+          boronganPerSisi: Number(user.boronganPerSisi) || 0
         };
         this.modalOpen = true;
         this.$nextTick(function () {
@@ -145,6 +152,7 @@
           this.formError = 'Nama lengkap wajib diisi.';
           return;
         }
+        var tarif = Math.max(0, Math.round(Number(this.form.boronganPerSisi) || 0));
 
         if (!this.editingUser) {
           var email = (this.form.email || '').trim();
@@ -164,7 +172,8 @@
               nama: nama,
               email: email,
               password: pass,
-              role: this.form.role
+              role: this.form.role,
+              boronganPerSisi: tarif
             });
             this.$emit('notify', {
               type: 'success',
@@ -185,7 +194,8 @@
           await global.ZcpUserService.updateUserAccount(this.editingUser.uid, {
             nama: nama,
             role: this.editingUser.uid === this.currentUserUid ? 'superadmin' : this.form.role,
-            active: this.editingUser.uid === this.currentUserUid ? true : this.form.active
+            active: this.editingUser.uid === this.currentUserUid ? true : this.form.active,
+            boronganPerSisi: tarif
           });
           this.$emit('notify', {
             type: 'success',
@@ -217,7 +227,8 @@
             await global.ZcpUserService.updateUserAccount(user.uid, {
               nama: user.nama,
               role: user.role,
-              active: nextActive
+              active: nextActive,
+              boronganPerSisi: Number(user.boronganPerSisi) || 0
             });
             self.$emit('notify', {
               type: nextActive ? 'success' : 'info',
@@ -363,6 +374,7 @@
                   <th>Nama</th>
                   <th>Email</th>
                   <th>Role Akses</th>
+                  <th>Borongan / Sisi</th>
                   <th>Status</th>
                   <th>Dibuat</th>
                   <th class="col-actions">Aksi</th>
@@ -384,6 +396,13 @@
                   <td data-label="Email">{{ u.email }}</td>
                   <td data-label="Role Akses">
                     <span class="role-badge" :class="u.role">{{ roleLabel(u.role) }}</span>
+                  </td>
+                  <td data-label="Borongan / Sisi">
+                    <span v-if="u.boronganPerSisi > 0" class="gaji-rate-text">
+                      <strong>{{ formatRupiah(u.boronganPerSisi) }}</strong>
+                      <span class="form-hint" style="margin-left: 3px;">/ sisi</span>
+                    </span>
+                    <span v-else class="form-hint">Rp 0 / sisi</span>
                   </td>
                   <td data-label="Status">
                     <span class="status-badge" :class="u.active !== false ? 'done' : 'danger'">
@@ -518,6 +537,28 @@
                       </span>
                     </button>
                   </div>
+                </div>
+
+                <div class="form-group">
+                  <label class="form-label" for="akun-borongan-sisi">
+                    Tarif Borongan per Sisi (Rp)
+                  </label>
+                  <div class="input-prefix-wrap">
+                    <span class="input-prefix-label">Rp</span>
+                    <input
+                      id="akun-borongan-sisi"
+                      v-model.number="form.boronganPerSisi"
+                      type="number"
+                      min="0"
+                      step="100"
+                      class="form-control"
+                      placeholder="Contoh: 1500"
+                      :disabled="saving"
+                    />
+                  </div>
+                  <span class="form-hint" style="margin-top: 6px; display: block;">
+                    Tarif saat ini: <strong>{{ formatRupiah(form.boronganPerSisi || 0) }} / sisi</strong>. Digunakan untuk menghitung Gaji Borongan (Total Sisi &times; Tarif per Sisi).
+                  </span>
                 </div>
 
                 <div

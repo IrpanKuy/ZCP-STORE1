@@ -326,6 +326,16 @@
       kontribusiModalExceeds: function () {
         var target = Number(this.kontribusiModal.order && this.kontribusiModal.order.jumlahProduk) || 0;
         return this.kontribusiDraftTotal > target;
+      },
+      kontribusiModalSisiCount: function () {
+        return this.getOrderSisiCount(this.kontribusiModal.order);
+      },
+      kontribusiModalTargetSisi: function () {
+        var target = Number(this.kontribusiModal.order && this.kontribusiModal.order.jumlahProduk) || 0;
+        return target * this.kontribusiModalSisiCount;
+      },
+      kontribusiDraftTotalSisi: function () {
+        return this.kontribusiDraftTotal * this.kontribusiModalSisiCount;
       }
     },
     methods: {
@@ -569,6 +579,12 @@
       isKontribusiComplete: function (order) {
         return this.getKontribusiTotal(order) === (Number(order && order.jumlahProduk) || 0);
       },
+      getOrderSisiCount: function (order) {
+        return Array.isArray(order && order.namaSisi) ? order.namaSisi.length : 0;
+      },
+      getRowSisiCount: function (qty) {
+        return Math.max(0, parseInt(qty, 10) || 0) * this.kontribusiModalSisiCount;
+      },
       deadlineBadgeMeta: function (order) {
         if (order.statusSelesai) {
           return { cls: 'done', icon: 'check_circle', text: 'Pesanan Selesai' };
@@ -691,6 +707,7 @@
             this.kontribusiModal.rows,
             order
           );
+          var sisiCount = this.getOrderSisiCount(order);
           this.kontribusiModal.visible = false;
           this.$emit('notify', {
             type: 'success',
@@ -701,7 +718,11 @@
               res.kontribusiTotal +
               '/' +
               target +
-              ' pcs).'
+              ' pcs' +
+              (sisiCount > 0
+                ? ' • ' + res.kontribusiTotal * sisiCount + '/' + target * sisiCount + ' sisi'
+                : '') +
+              ').'
           });
         } catch (err) {
           var msg = (err && err.message) || 'Gagal menyimpan kontribusi.';
@@ -777,9 +798,16 @@
           }
         }
 
+        var sisiCount = this.getOrderSisiCount(order);
         var kontribText = (order.kontribusi || [])
           .map(function (k) {
-            return k.nama + ': ' + k.qty + ' pcs';
+            return (
+              k.nama +
+              ': ' +
+              k.qty +
+              ' pcs' +
+              (sisiCount > 0 ? ' (' + k.qty * sisiCount + ' sisi)' : '')
+            );
           })
           .join(', ');
 
@@ -1123,7 +1151,12 @@
                       :class="isKontribusiComplete(order) ? 'done' : 'warn'"
                     >
                       <span class="material-symbols-rounded" style="font-size: 14px;">group</span>
-                      <span>Kontribusi: {{ getKontribusiTotal(order) }}/{{ order.jumlahProduk }} pcs</span>
+                      <span>
+                        Kontribusi: {{ getKontribusiTotal(order) }}/{{ order.jumlahProduk }} pcs
+                        <template v-if="getOrderSisiCount(order) > 0">
+                          ({{ getKontribusiTotal(order) * getOrderSisiCount(order) }}/{{ order.jumlahProduk * getOrderSisiCount(order) }} sisi)
+                        </template>
+                      </span>
                     </span>
                     <span
                       v-for="k in order.kontribusi"
@@ -1131,6 +1164,9 @@
                       class="chip"
                     >
                       {{ k.nama }}: <strong>{{ k.qty }} pcs</strong>
+                      <span v-if="getOrderSisiCount(order) > 0" class="chip-sisi-sub">
+                        ({{ k.qty * getOrderSisiCount(order) }} sisi)
+                      </span>
                     </span>
                   </div>
                 </div>
@@ -1307,6 +1343,9 @@
                       class="chip"
                     >
                       {{ k.nama }}: <strong>{{ k.qty }} pcs</strong>
+                      <span v-if="getOrderSisiCount(order) > 0" class="chip-sisi-sub">
+                        ({{ k.qty * getOrderSisiCount(order) }} sisi)
+                      </span>
                     </span>
                   </div>
                 </div>
@@ -1425,7 +1464,8 @@
               <div>
                 <h3 class="modal-title">Atur Kontribusi Produksi</h3>
                 <div class="form-hint">
-                  {{ kontribusiModal.order.namaPemesan }} — {{ kontribusiModal.order.namaProduk }} (Target: {{ kontribusiModal.order.jumlahProduk }} pcs)
+                  {{ kontribusiModal.order.namaPemesan }} — {{ kontribusiModal.order.namaProduk }}
+                  (Target: {{ kontribusiModal.order.jumlahProduk }} pcs &times; {{ kontribusiModalSisiCount }} sisi = <strong>{{ kontribusiModalTargetSisi }} sisi</strong>)
                 </div>
               </div>
               <button
@@ -1453,27 +1493,40 @@
                     complete: !kontribusiModalExceeds && kontribusiDraftTotal === kontribusiModal.order.jumlahProduk
                   }"
                 >
-                  <div>
-                    <div style="font-size: 12px; opacity: 0.85;">Total Qty Kontribusi Terinput</div>
-                    <div style="font-size: 18px; font-weight: 700;">
-                      {{ kontribusiDraftTotal }} / {{ kontribusiModal.order.jumlahProduk }} pcs
+                  <div class="kontribusi-summary-metrics">
+                    <div>
+                      <div style="font-size: 11.5px; opacity: 0.85;">Total Qty Kontribusi</div>
+                      <div style="font-size: 16px; font-weight: 700;">
+                        {{ kontribusiDraftTotal }} / {{ kontribusiModal.order.jumlahProduk }} pcs
+                      </div>
+                    </div>
+                    <div class="kontribusi-summary-divider"></div>
+                    <div>
+                      <div style="font-size: 11.5px; opacity: 0.85;">
+                        Total Sisi Diselesaikan ({{ kontribusiModalSisiCount }} sisi / pcs)
+                      </div>
+                      <div style="font-size: 18px; font-weight: 800;">
+                        {{ kontribusiDraftTotalSisi }} / {{ kontribusiModalTargetSisi }} sisi
+                      </div>
                     </div>
                   </div>
                   <div style="text-align: right; font-size: 12.5px; font-weight: 600;">
                     <span v-if="kontribusiModalExceeds">
-                      Melebihi +{{ kontribusiDraftTotal - kontribusiModal.order.jumlahProduk }} pcs!
+                      Melebihi +{{ kontribusiDraftTotal - kontribusiModal.order.jumlahProduk }} pcs
+                      ({{ (kontribusiDraftTotal - kontribusiModal.order.jumlahProduk) * kontribusiModalSisiCount }} sisi)!
                     </span>
                     <span v-else-if="kontribusiDraftTotal === kontribusiModal.order.jumlahProduk">
-                      Lengkap! Pesanan siap ditandai Selesai
+                      Lengkap! {{ kontribusiDraftTotalSisi }} sisi siap ditandai Selesai
                     </span>
                     <span v-else>
-                      Sisa belum terinput: {{ kontribusiModal.order.jumlahProduk - kontribusiDraftTotal }} pcs
+                      Sisa: {{ kontribusiModal.order.jumlahProduk - kontribusiDraftTotal }} pcs
+                      ({{ kontribusiModalTargetSisi - kontribusiDraftTotalSisi }} sisi)
                     </span>
                   </div>
                 </div>
 
                 <div class="form-hint" style="margin-bottom: 10px;">
-                  Anda dapat menyimpan kontribusi bertahap di tengah proses pengerjaan. Tombol "Pesanan Selesai" aktif jika total qty sama dengan jumlah pesanan.
+                  Total sisi dihitung otomatis dari <strong>qty &times; {{ kontribusiModalSisiCount }} sisi</strong>. Anda dapat menyimpan kontribusi bertahap; tombol "Pesanan Selesai" aktif jika total qty sama dengan jumlah pesanan.
                 </div>
 
                 <div v-if="!kontribusiModal.rows.length" class="empty-state" style="padding: 24px 12px;">
@@ -1491,6 +1544,16 @@
                       <span class="role-badge" :class="row.role">{{ row.role }}</span>
                     </div>
                     <div class="kontribusi-qty-wrap">
+                      <span
+                        class="kontribusi-sisi-calc"
+                        :class="{ 'is-active': (parseInt(row.qty, 10) || 0) > 0 }"
+                        :title="(Math.max(0, parseInt(row.qty, 10) || 0)) + ' qty × ' + kontribusiModalSisiCount + ' sisi'"
+                      >
+                        <template v-if="(parseInt(row.qty, 10) || 0) > 0">
+                          {{ Math.max(0, parseInt(row.qty, 10) || 0) }} &times; {{ kontribusiModalSisiCount }} = <strong>{{ getRowSisiCount(row.qty) }} sisi</strong>
+                        </template>
+                        <template v-else>0 sisi</template>
+                      </span>
                       <input
                         v-model.number="row.qty"
                         type="number"

@@ -3,6 +3,129 @@
 
   global.ZcpComponents = global.ZcpComponents || {};
 
+  var MONTH_NAMES_ID = [
+    'Januari',
+    'Februari',
+    'Maret',
+    'April',
+    'Mei',
+    'Juni',
+    'Juli',
+    'Agustus',
+    'September',
+    'Oktober',
+    'November',
+    'Desember'
+  ];
+
+  var SHORT_MONTH_NAMES_ID = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'Mei',
+    'Jun',
+    'Jul',
+    'Agu',
+    'Sep',
+    'Okt',
+    'Nov',
+    'Des'
+  ];
+
+  var DAY_NAMES_ID = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+
+  function pad2(n) {
+    return n < 10 ? '0' + n : String(n);
+  }
+
+  function toYmd(date) {
+    return date.getFullYear() + '-' + pad2(date.getMonth() + 1) + '-' + pad2(date.getDate());
+  }
+
+  function toYm(date) {
+    return date.getFullYear() + '-' + pad2(date.getMonth() + 1);
+  }
+
+  function firstDayOfMonthYmd(date) {
+    return date.getFullYear() + '-' + pad2(date.getMonth() + 1) + '-01';
+  }
+
+  function parseYmdLocal(ymd) {
+    if (!ymd || typeof ymd !== 'string') return null;
+    var parts = ymd.split('-');
+    if (parts.length !== 3) return null;
+    var y = parseInt(parts[0], 10);
+    var m = parseInt(parts[1], 10);
+    var d = parseInt(parts[2], 10);
+    if (!y || !m || !d) return null;
+    var dt = new Date(y, m - 1, d, 0, 0, 0, 0);
+    return isNaN(dt.getTime()) ? null : dt;
+  }
+
+  function shiftYmd(ymd, deltaDays) {
+    var d = parseYmdLocal(ymd) || new Date();
+    d.setDate(d.getDate() + deltaDays);
+    return toYmd(d);
+  }
+
+  function shiftYm(ym, deltaMonths) {
+    var parts = String(ym || '').split('-');
+    var y = parseInt(parts[0], 10) || new Date().getFullYear();
+    var m = parseInt(parts[1], 10) || new Date().getMonth() + 1;
+    var d = new Date(y, m - 1 + deltaMonths, 1);
+    return toYm(d);
+  }
+
+  function toIsoWeekString(date) {
+    var d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    var dayNum = d.getDay() || 7;
+    d.setDate(d.getDate() + 4 - dayNum);
+    var yearStart = new Date(d.getFullYear(), 0, 1);
+    var weekNo = Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
+    return d.getFullYear() + '-W' + pad2(weekNo);
+  }
+
+  function getIsoWeekRange(weekStr) {
+    var m = /^(\d{4})-W(\d{2})$/.exec(String(weekStr || ''));
+    if (!m) return null;
+    var year = parseInt(m[1], 10);
+    var week = parseInt(m[2], 10);
+    if (!year || !week) return null;
+    var jan4 = new Date(year, 0, 4, 0, 0, 0, 0);
+    var jan4Day = jan4.getDay() || 7;
+    var week1Monday = new Date(year, 0, 4 - (jan4Day - 1), 0, 0, 0, 0);
+    var start = new Date(week1Monday.getTime());
+    start.setDate(week1Monday.getDate() + (week - 1) * 7);
+    var end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 6, 23, 59, 59, 999);
+    return { start: start, end: end, week: week, year: year };
+  }
+
+  function shiftIsoWeek(weekStr, deltaWeeks) {
+    var range = getIsoWeekRange(weekStr);
+    var base = range ? new Date(range.start.getTime()) : new Date();
+    base.setDate(base.getDate() + deltaWeeks * 7);
+    return toIsoWeekString(base);
+  }
+
+  function extractJsDate(ts) {
+    if (!ts) return null;
+    if (typeof ts.toDate === 'function') {
+      var td = ts.toDate();
+      return td && !isNaN(td.getTime()) ? td : null;
+    }
+    if (typeof ts === 'object' && typeof ts.seconds === 'number') {
+      var sd = new Date(ts.seconds * 1000);
+      return !isNaN(sd.getTime()) ? sd : null;
+    }
+    var d = ts instanceof Date ? ts : new Date(ts);
+    return !isNaN(d.getTime()) ? d : null;
+  }
+
+  function formatShortDate(date) {
+    return date.getDate() + ' ' + SHORT_MONTH_NAMES_ID[date.getMonth()] + ' ' + date.getFullYear();
+  }
+
   global.ZcpComponents.BoronganView = {
     name: 'BoronganView',
     props: {
@@ -24,10 +147,16 @@
           return [];
         }
       },
+      usersList: {
+        type: Array,
+        default: function () {
+          return [];
+        }
+      },
       user: {
         type: Object,
         default: function () {
-          return { uid: '', email: '', nama: '', role: 'karyawan' };
+          return { uid: '', email: '', nama: '', role: 'karyawan', boronganPerSisi: 0 };
         }
       },
       loading: { type: Boolean, default: false },
@@ -39,15 +168,26 @@
     },
     emits: ['notify', 'request-confirm'],
     data: function () {
+      var now = new Date();
       return {
         activeTab: 'borongan',
+        timeFilterMode: 'all',
+        filterDay: toYmd(now),
+        filterWeek: toIsoWeekString(now),
+        filterMonth: toYm(now),
+        filterRangeStart: firstDayOfMonthYmd(now),
+        filterRangeEnd: toYmd(now),
         searchQuery: '',
         staffFilter: '',
+        gajiSearch: '',
+        gajiOnlyActiveWork: false,
         requestSearch: '',
         requestStatusFilter: 'all',
         currentPage: 1,
+        gajiPage: 1,
         requestPage: 1,
         localPageSize: this.defaultPageSize,
+        gajiPageSize: this.defaultPageSize,
         requestPageSize: this.defaultPageSize,
         busyRequestId: null,
         changeModal: {
@@ -63,15 +203,47 @@
     watch: {
       defaultPageSize: function (val) {
         this.localPageSize = val;
+        this.gajiPageSize = val;
         this.requestPageSize = val;
         this.currentPage = 1;
+        this.gajiPage = 1;
         this.requestPage = 1;
+      },
+      timeFilterMode: function () {
+        this.currentPage = 1;
+        this.gajiPage = 1;
+      },
+      filterDay: function () {
+        this.currentPage = 1;
+        this.gajiPage = 1;
+      },
+      filterWeek: function () {
+        this.currentPage = 1;
+        this.gajiPage = 1;
+      },
+      filterMonth: function () {
+        this.currentPage = 1;
+        this.gajiPage = 1;
+      },
+      filterRangeStart: function () {
+        this.currentPage = 1;
+        this.gajiPage = 1;
+      },
+      filterRangeEnd: function () {
+        this.currentPage = 1;
+        this.gajiPage = 1;
       },
       searchQuery: function () {
         this.currentPage = 1;
       },
       staffFilter: function () {
         this.currentPage = 1;
+      },
+      gajiSearch: function () {
+        this.gajiPage = 1;
+      },
+      gajiOnlyActiveWork: function () {
+        this.gajiPage = 1;
       },
       requestSearch: function () {
         this.requestPage = 1;
@@ -87,6 +259,28 @@
       currentUid: function () {
         return (this.user && this.user.uid) || '';
       },
+      usersByUidMap: function () {
+        var map = {};
+        if (this.user && this.user.uid) {
+          map[this.user.uid] = this.user;
+        }
+        (this.staffList || []).forEach(function (u) {
+          var uid = u && (u.uid || u.id);
+          if (uid) map[uid] = u;
+        });
+        (this.usersList || []).forEach(function (u) {
+          var uid = u && (u.uid || u.id);
+          if (uid) map[uid] = u;
+        });
+        return map;
+      },
+      pesananByIdMap: function () {
+        var map = {};
+        (this.pesananList || []).forEach(function (p) {
+          if (p && p.id) map[p.id] = p;
+        });
+        return map;
+      },
       pendingByOrderMap: function () {
         var map = {};
         (this.requestsList || []).forEach(function (r) {
@@ -95,6 +289,91 @@
           }
         });
         return map;
+      },
+      activeQuickPreset: function () {
+        if (this.timeFilterMode === 'all') return 'all';
+        var now = new Date();
+        var today = toYmd(now);
+        if (this.timeFilterMode === 'day') {
+          if (this.filterDay === today) return 'today';
+          if (this.filterDay === shiftYmd(today, -1)) return 'yesterday';
+        } else if (this.timeFilterMode === 'week') {
+          var thisWeek = toIsoWeekString(now);
+          if (this.filterWeek === thisWeek) return 'this_week';
+          if (this.filterWeek === shiftIsoWeek(thisWeek, -1)) return 'last_week';
+        } else if (this.timeFilterMode === 'month') {
+          var thisMonth = toYm(now);
+          if (this.filterMonth === thisMonth) return 'this_month';
+          if (this.filterMonth === shiftYm(thisMonth, -1)) return 'last_month';
+        }
+        return '';
+      },
+      activeTimeRange: function () {
+        var mode = this.timeFilterMode;
+        if (mode === 'day') {
+          var d = parseYmdLocal(this.filterDay) || new Date();
+          var startDay = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
+          var endDay = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
+          return {
+            start: startDay,
+            end: endDay,
+            label: DAY_NAMES_ID[d.getDay()] + ', ' + formatShortDate(d)
+          };
+        }
+        if (mode === 'week') {
+          var wk = getIsoWeekRange(this.filterWeek) || getIsoWeekRange(toIsoWeekString(new Date()));
+          return {
+            start: wk.start,
+            end: wk.end,
+            label:
+              'Minggu ke-' +
+              wk.week +
+              ' (' +
+              formatShortDate(wk.start) +
+              ' – ' +
+              formatShortDate(wk.end) +
+              ')'
+          };
+        }
+        if (mode === 'month') {
+          var parts = String(this.filterMonth || '').split('-');
+          var now = new Date();
+          var y = parseInt(parts[0], 10) || now.getFullYear();
+          var m = parseInt(parts[1], 10) || now.getMonth() + 1;
+          var startMonth = new Date(y, m - 1, 1, 0, 0, 0, 0);
+          var endMonth = new Date(y, m, 0, 23, 59, 59, 999);
+          return {
+            start: startMonth,
+            end: endMonth,
+            label: MONTH_NAMES_ID[m - 1] + ' ' + y
+          };
+        }
+        if (mode === 'range') {
+          var s = parseYmdLocal(this.filterRangeStart);
+          var e = parseYmdLocal(this.filterRangeEnd);
+          if (!s && !e) {
+            return { start: null, end: null, label: 'Semua Waktu' };
+          }
+          if (s && e && s.getTime() > e.getTime()) {
+            var tmp = s;
+            s = e;
+            e = tmp;
+          }
+          var startRange = s
+            ? new Date(s.getFullYear(), s.getMonth(), s.getDate(), 0, 0, 0, 0)
+            : null;
+          var endRange = e
+            ? new Date(e.getFullYear(), e.getMonth(), e.getDate(), 23, 59, 59, 999)
+            : null;
+          var lbl =
+            startRange && endRange
+              ? formatShortDate(startRange) + ' – ' + formatShortDate(endRange)
+              : startRange
+                ? 'Mulai ' + formatShortDate(startRange)
+                : 'Sampai ' + formatShortDate(endRange);
+          return { start: startRange, end: endRange, label: lbl };
+        }
+        return { start: null, end: null, label: 'Semua Waktu' };
       },
       /**
        * Pesanan selesai yang memiliki data kontribusi dan boleh dilihat oleh user saat ini.
@@ -112,10 +391,24 @@
           });
         });
       },
+      timeFilteredBoronganOrders: function () {
+        var range = this.activeTimeRange;
+        if (!range.start && !range.end) return this.visibleBoronganOrders;
+        var startMs = range.start ? range.start.getTime() : null;
+        var endMs = range.end ? range.end.getTime() : null;
+        return this.visibleBoronganOrders.filter(function (order) {
+          var dt = extractJsDate(order.completedAt || order.updatedAt || order.createdAt);
+          if (!dt) return false;
+          var ms = dt.getTime();
+          if (startMs !== null && ms < startMs) return false;
+          if (endMs !== null && ms > endMs) return false;
+          return true;
+        });
+      },
       staffFilterOptions: function () {
         var map = {};
         var list = [];
-        this.visibleBoronganOrders.forEach(function (order) {
+        this.timeFilteredBoronganOrders.forEach(function (order) {
           (order.kontribusi || []).forEach(function (k) {
             if (k && k.uid && !map[k.uid]) {
               map[k.uid] = true;
@@ -130,7 +423,7 @@
       filteredBoronganOrders: function () {
         var q = this.searchQuery.trim().toLowerCase();
         var sf = this.staffFilter;
-        return this.visibleBoronganOrders.filter(function (order) {
+        return this.timeFilteredBoronganOrders.filter(function (order) {
           if (sf) {
             var hasStaff = (order.kontribusi || []).some(function (k) {
               return k.uid === sf;
@@ -155,10 +448,115 @@
         var start = (this.currentPage - 1) * size;
         return this.filteredBoronganOrders.slice(start, start + size);
       },
+      employeeStatsList: function () {
+        var self = this;
+        var isSuper = this.isSuperadmin;
+        var myUid = this.currentUid;
+        var usersMap = this.usersByUidMap;
+        var statsByUid = {};
+
+        function ensureEntry(uid, fallbackName, fallbackRole) {
+          if (!statsByUid[uid]) {
+            var userObj = usersMap[uid] || null;
+            statsByUid[uid] = {
+              uid: uid,
+              nama: (userObj && userObj.nama) || fallbackName || 'Karyawan',
+              role: (userObj && userObj.role) || fallbackRole || 'karyawan',
+              active: userObj ? userObj.active !== false : true,
+              boronganPerSisi: Math.max(0, Math.round(Number(userObj && userObj.boronganPerSisi) || 0)),
+              orderIds: {},
+              orderCount: 0,
+              totalQty: 0,
+              totalSisi: 0,
+              totalGaji: 0
+            };
+          }
+          return statsByUid[uid];
+        }
+
+        this.timeFilteredBoronganOrders.forEach(function (order) {
+          var sisiCount = self.getOrderSisiCount(order);
+          (order.kontribusi || []).forEach(function (k) {
+            if (!k || !k.uid) return;
+            if (!isSuper && k.uid !== myUid) return;
+            var qty = Math.max(0, parseInt(k.qty, 10) || 0);
+            if (qty <= 0) return;
+            var entry = ensureEntry(k.uid, k.nama, k.role);
+            if (!entry.orderIds[order.id]) {
+              entry.orderIds[order.id] = true;
+              entry.orderCount += 1;
+            }
+            entry.totalQty += qty;
+            entry.totalSisi += qty * sisiCount;
+          });
+        });
+
+        if (isSuper) {
+          (this.staffList || []).forEach(function (u) {
+            var uid = u && (u.uid || u.id);
+            if (uid) ensureEntry(uid, u.nama, u.role);
+          });
+        } else if (myUid) {
+          ensureEntry(myUid, this.user && this.user.nama, this.user && this.user.role);
+        }
+
+        return Object.keys(statsByUid)
+          .map(function (uid) {
+            var item = statsByUid[uid];
+            item.totalGaji = item.totalSisi * item.boronganPerSisi;
+            return item;
+          })
+          .sort(function (a, b) {
+            if (b.totalSisi !== a.totalSisi) return b.totalSisi - a.totalSisi;
+            if (b.totalGaji !== a.totalGaji) return b.totalGaji - a.totalGaji;
+            return (a.nama || '').localeCompare(b.nama || '');
+          });
+      },
+      employeeSisiSummaryCards: function () {
+        var isSuper = this.isSuperadmin;
+        return this.employeeStatsList.filter(function (row) {
+          if (!isSuper) return true;
+          return row.totalSisi > 0 || row.totalQty > 0;
+        });
+      },
+      filteredGajiRows: function () {
+        var q = this.gajiSearch.trim().toLowerCase();
+        var onlyWork = this.isSuperadmin && this.gajiOnlyActiveWork;
+        return this.employeeStatsList.filter(function (row) {
+          if (onlyWork && row.totalSisi <= 0) return false;
+          if (!q) return true;
+          return (
+            (row.nama || '').toLowerCase().indexOf(q) !== -1 ||
+            (row.role || '').toLowerCase().indexOf(q) !== -1
+          );
+        });
+      },
+      paginatedGajiRows: function () {
+        if (this.gajiPageSize === 'all') return this.filteredGajiRows;
+        var size = Number(this.gajiPageSize) || 10;
+        var start = (this.gajiPage - 1) * size;
+        return this.filteredGajiRows.slice(start, start + size);
+      },
+      gajiGrandTotals: function () {
+        return this.filteredGajiRows.reduce(
+          function (acc, row) {
+            acc.totalQty += row.totalQty;
+            acc.totalSisi += row.totalSisi;
+            acc.totalGaji += row.totalGaji;
+            return acc;
+          },
+          { totalQty: 0, totalSisi: 0, totalGaji: 0 }
+        );
+      },
+      hasMissingTarif: function () {
+        return this.filteredGajiRows.some(function (row) {
+          return row.totalSisi > 0 && row.boronganPerSisi <= 0;
+        });
+      },
       myTotalPcsCount: function () {
         var uid = this.currentUid;
         var isSuper = this.isSuperadmin;
-        return this.visibleBoronganOrders.reduce(function (sum, order) {
+        return this.timeFilteredBoronganOrders.reduce(function (sum, order) {
           if (isSuper) {
             return sum + (Number(order.jumlahProduk) || 0);
           }
@@ -166,6 +564,16 @@
             return k.uid === uid;
           });
           return sum + (mine ? Number(mine.qty) || 0 : 0);
+        }, 0);
+      },
+      kpiTotalSisiCount: function () {
+        return this.employeeStatsList.reduce(function (sum, row) {
+          return sum + row.totalSisi;
+        }, 0);
+      },
+      kpiTotalGajiAmount: function () {
+        return this.employeeStatsList.reduce(function (sum, row) {
+          return sum + row.totalGaji;
         }, 0);
       },
       visibleRequests: function () {
@@ -209,9 +617,68 @@
       },
       changeTargetQty: function () {
         return Number(this.changeModal.order && this.changeModal.order.jumlahProduk) || 0;
+      },
+      changeModalSisiCount: function () {
+        return this.getOrderSisiCount(this.changeModal.order);
+      },
+      changeDraftTotalSisi: function () {
+        return this.changeDraftTotal * this.changeModalSisiCount;
+      },
+      changeTargetSisi: function () {
+        return this.changeTargetQty * this.changeModalSisiCount;
       }
     },
     methods: {
+      getOrderSisiCount: function (order) {
+        return Array.isArray(order && order.namaSisi) ? order.namaSisi.length : 0;
+      },
+      getRequestSisiCount: function (req) {
+        if (!req) return 0;
+        var linked = req.pesananId ? this.pesananByIdMap[req.pesananId] : null;
+        return this.getOrderSisiCount(linked);
+      },
+      formatRupiah: function (amount) {
+        var num = Math.max(0, Math.round(Number(amount) || 0));
+        return 'Rp ' + num.toLocaleString('id-ID');
+      },
+      applyQuickTime: function (preset) {
+        var now = new Date();
+        var today = toYmd(now);
+        if (preset === 'all') {
+          this.timeFilterMode = 'all';
+        } else if (preset === 'today') {
+          this.timeFilterMode = 'day';
+          this.filterDay = today;
+        } else if (preset === 'yesterday') {
+          this.timeFilterMode = 'day';
+          this.filterDay = shiftYmd(today, -1);
+        } else if (preset === 'this_week') {
+          this.timeFilterMode = 'week';
+          this.filterWeek = toIsoWeekString(now);
+        } else if (preset === 'last_week') {
+          this.timeFilterMode = 'week';
+          this.filterWeek = shiftIsoWeek(toIsoWeekString(now), -1);
+        } else if (preset === 'this_month') {
+          this.timeFilterMode = 'month';
+          this.filterMonth = toYm(now);
+        } else if (preset === 'last_month') {
+          this.timeFilterMode = 'month';
+          this.filterMonth = shiftYm(toYm(now), -1);
+        }
+      },
+      stepTimePeriod: function (delta) {
+        if (this.timeFilterMode === 'day') {
+          this.filterDay = shiftYmd(this.filterDay, delta);
+        } else if (this.timeFilterMode === 'week') {
+          this.filterWeek = shiftIsoWeek(this.filterWeek, delta);
+        } else if (this.timeFilterMode === 'month') {
+          this.filterMonth = shiftYm(this.filterMonth, delta);
+        }
+      },
+      toggleStaffFilterFromCard: function (uid) {
+        if (!this.isSuperadmin) return;
+        this.staffFilter = this.staffFilter === uid ? '' : uid;
+      },
       formatDateTime: function (ts) {
         if (!ts) return 'Baru saja';
         var d = typeof ts.toDate === 'function' ? ts.toDate() : new Date(ts);
@@ -230,6 +697,9 @@
           return k.uid === uid;
         });
         return found ? Number(found.qty) || 0 : 0;
+      },
+      getMySisiInOrder: function (order) {
+        return this.getMyQtyInOrder(order) * this.getOrderSisiCount(order);
       },
       canRequestChange: function (order) {
         if (!order || !order.statusSelesai) return false;
@@ -447,37 +917,56 @@
     },
     template: `
       <div>
-        <!-- 3 KPI Borongan -->
-        <div class="kpi-grid">
+        <!-- 4 KPI Borongan (mengikuti filter waktu) -->
+        <div class="kpi-grid kpi-grid-4">
           <div class="kpi-card">
             <div class="kpi-top">
               <div>
-                <div class="kpi-label">Pesanan Borongan Tercatat</div>
-                <div class="kpi-value">{{ visibleBoronganOrders.length }}</div>
+                <div class="kpi-label">Pesanan Borongan</div>
+                <div class="kpi-value">{{ timeFilteredBoronganOrders.length }}</div>
               </div>
               <div class="kpi-icon-box">
-                <span class="material-symbols-rounded">payments</span>
+                <span class="material-symbols-rounded">receipt_long</span>
               </div>
             </div>
             <div class="kpi-divider"></div>
             <div class="kpi-footer">
-              {{ isSuperadmin ? 'Seluruh pesanan selesai dengan kontribusi' : 'Pesanan selesai dengan kontribusi Anda' }}
+              {{ activeTimeRange.label }}
             </div>
           </div>
 
           <div class="kpi-card">
             <div class="kpi-top">
               <div>
-                <div class="kpi-label">{{ isSuperadmin ? 'Total Qty Produksi' : 'Total Kontribusi Saya' }}</div>
-                <div class="kpi-value">{{ myTotalPcsCount }} <span style="font-size: 14px; font-weight: 600;">pcs</span></div>
+                <div class="kpi-label">{{ isSuperadmin ? 'Total Sisi Diselesaikan' : 'Total Sisi Saya' }}</div>
+                <div class="kpi-value">
+                  {{ kpiTotalSisiCount.toLocaleString('id-ID') }}
+                  <span style="font-size: 14px; font-weight: 600;">sisi</span>
+                </div>
               </div>
               <div class="kpi-icon-box">
-                <span class="material-symbols-rounded">inventory_2</span>
+                <span class="material-symbols-rounded">layers</span>
               </div>
             </div>
             <div class="kpi-divider"></div>
             <div class="kpi-footer">
-              Akumulasi qty dari pesanan yang telah diselesaikan
+              Total {{ myTotalPcsCount.toLocaleString('id-ID') }} pcs (&Sigma; qty &times; jumlah sisi)
+            </div>
+          </div>
+
+          <div class="kpi-card">
+            <div class="kpi-top">
+              <div>
+                <div class="kpi-label">{{ isSuperadmin ? 'Total Gaji Borongan' : 'Gaji Borongan Saya' }}</div>
+                <div class="kpi-value" style="font-size: 22px;">{{ formatRupiah(kpiTotalGajiAmount) }}</div>
+              </div>
+              <div class="kpi-icon-box">
+                <span class="material-symbols-rounded">account_balance_wallet</span>
+              </div>
+            </div>
+            <div class="kpi-divider"></div>
+            <div class="kpi-footer">
+              Total Sisi &times; Tarif / Sisi ({{ activeTimeRange.label }})
             </div>
           </div>
 
@@ -498,6 +987,215 @@
           </div>
         </div>
 
+        <!-- Bar Filter Waktu Lengkap (Hari / Minggu / Bulan / Rentang / Semua) -->
+        <div class="card borongan-time-bar">
+          <div class="borongan-time-top">
+            <div class="time-mode-pills" role="group" aria-label="Mode filter waktu">
+              <button
+                type="button"
+                class="time-pill"
+                :class="{ active: timeFilterMode === 'all' }"
+                @click="timeFilterMode = 'all'"
+              >
+                Semua Waktu
+              </button>
+              <button
+                type="button"
+                class="time-pill"
+                :class="{ active: timeFilterMode === 'day' }"
+                @click="timeFilterMode = 'day'"
+              >
+                Harian
+              </button>
+              <button
+                type="button"
+                class="time-pill"
+                :class="{ active: timeFilterMode === 'week' }"
+                @click="timeFilterMode = 'week'"
+              >
+                Mingguan
+              </button>
+              <button
+                type="button"
+                class="time-pill"
+                :class="{ active: timeFilterMode === 'month' }"
+                @click="timeFilterMode = 'month'"
+              >
+                Bulanan
+              </button>
+              <button
+                type="button"
+                class="time-pill"
+                :class="{ active: timeFilterMode === 'range' }"
+                @click="timeFilterMode = 'range'"
+              >
+                Rentang Tanggal
+              </button>
+            </div>
+
+            <div class="time-quick-chips">
+              <button
+                type="button"
+                class="time-quick-btn"
+                :class="{ active: activeQuickPreset === 'today' }"
+                @click="applyQuickTime('today')"
+              >
+                Hari Ini
+              </button>
+              <button
+                type="button"
+                class="time-quick-btn"
+                :class="{ active: activeQuickPreset === 'yesterday' }"
+                @click="applyQuickTime('yesterday')"
+              >
+                Kemarin
+              </button>
+              <button
+                type="button"
+                class="time-quick-btn"
+                :class="{ active: activeQuickPreset === 'this_week' }"
+                @click="applyQuickTime('this_week')"
+              >
+                Minggu Ini
+              </button>
+              <button
+                type="button"
+                class="time-quick-btn"
+                :class="{ active: activeQuickPreset === 'last_week' }"
+                @click="applyQuickTime('last_week')"
+              >
+                Minggu Lalu
+              </button>
+              <button
+                type="button"
+                class="time-quick-btn"
+                :class="{ active: activeQuickPreset === 'this_month' }"
+                @click="applyQuickTime('this_month')"
+              >
+                Bulan Ini
+              </button>
+              <button
+                type="button"
+                class="time-quick-btn"
+                :class="{ active: activeQuickPreset === 'last_month' }"
+                @click="applyQuickTime('last_month')"
+              >
+                Bulan Lalu
+              </button>
+            </div>
+          </div>
+
+          <div class="borongan-time-bottom">
+            <div v-if="timeFilterMode === 'day'" class="time-picker-row">
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm btn-icon-sq"
+                title="Hari sebelumnya"
+                @click="stepTimePeriod(-1)"
+              >
+                <span class="material-symbols-rounded" style="font-size: 18px;">chevron_left</span>
+              </button>
+              <input
+                v-model="filterDay"
+                type="date"
+                class="form-control time-input"
+                aria-label="Pilih tanggal"
+              />
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm btn-icon-sq"
+                title="Hari berikutnya"
+                @click="stepTimePeriod(1)"
+              >
+                <span class="material-symbols-rounded" style="font-size: 18px;">chevron_right</span>
+              </button>
+            </div>
+
+            <div v-else-if="timeFilterMode === 'week'" class="time-picker-row">
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm btn-icon-sq"
+                title="Minggu sebelumnya"
+                @click="stepTimePeriod(-1)"
+              >
+                <span class="material-symbols-rounded" style="font-size: 18px;">chevron_left</span>
+              </button>
+              <input
+                v-model="filterWeek"
+                type="week"
+                class="form-control time-input"
+                aria-label="Pilih minggu"
+              />
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm btn-icon-sq"
+                title="Minggu berikutnya"
+                @click="stepTimePeriod(1)"
+              >
+                <span class="material-symbols-rounded" style="font-size: 18px;">chevron_right</span>
+              </button>
+            </div>
+
+            <div v-else-if="timeFilterMode === 'month'" class="time-picker-row">
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm btn-icon-sq"
+                title="Bulan sebelumnya"
+                @click="stepTimePeriod(-1)"
+              >
+                <span class="material-symbols-rounded" style="font-size: 18px;">chevron_left</span>
+              </button>
+              <input
+                v-model="filterMonth"
+                type="month"
+                class="form-control time-input"
+                aria-label="Pilih bulan"
+              />
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm btn-icon-sq"
+                title="Bulan berikutnya"
+                @click="stepTimePeriod(1)"
+              >
+                <span class="material-symbols-rounded" style="font-size: 18px;">chevron_right</span>
+              </button>
+            </div>
+
+            <div v-else-if="timeFilterMode === 'range'" class="time-picker-row">
+              <input
+                v-model="filterRangeStart"
+                type="date"
+                class="form-control time-input"
+                aria-label="Tanggal mulai"
+              />
+              <span class="form-hint" style="font-weight: 600;">s/d</span>
+              <input
+                v-model="filterRangeEnd"
+                type="date"
+                class="form-control time-input"
+                aria-label="Tanggal akhir"
+              />
+            </div>
+
+            <div v-else class="form-hint">
+              Menampilkan akumulasi seluruh pesanan borongan selesai tanpa batas tanggal.
+            </div>
+
+            <div class="time-period-badge">
+              <span class="material-symbols-rounded" style="font-size: 15px;">calendar_month</span>
+              <span>Periode: <strong>{{ activeTimeRange.label }}</strong></span>
+              <button
+                v-if="timeFilterMode !== 'all'"
+                type="button"
+                class="time-reset-link"
+                @click="applyQuickTime('all')"
+              >
+                Reset
+              </button>
+            </div>
+          </div>
+        </div>
+
         <!-- Tabs Borongan -->
         <div class="tabs-bar" role="tablist" aria-label="Menu Borongan">
           <button
@@ -510,7 +1208,20 @@
           >
             <span class="material-symbols-rounded" style="font-size: 19px;">payments</span>
             <span>Data Borongan</span>
-            <span class="tab-count">{{ visibleBoronganOrders.length }}</span>
+            <span class="tab-count">{{ timeFilteredBoronganOrders.length }}</span>
+          </button>
+
+          <button
+            type="button"
+            role="tab"
+            :aria-selected="activeTab === 'gaji'"
+            class="tab-btn"
+            :class="{ active: activeTab === 'gaji' }"
+            @click="activeTab = 'gaji'"
+          >
+            <span class="material-symbols-rounded" style="font-size: 19px;">account_balance_wallet</span>
+            <span>Gaji Borongan</span>
+            <span class="tab-count">{{ employeeStatsList.length }}</span>
           </button>
 
           <button
@@ -531,12 +1242,12 @@
         <div v-if="activeTab === 'borongan'" class="card">
           <div class="panel-toolbar">
             <div class="panel-heading">
-              <h2>Data Borongan Karyawan</h2>
+              <h2>Data Borongan &amp; Total Sisi Karyawan</h2>
               <p>
                 {{
                   isSuperadmin
-                    ? 'Seluruh riwayat kontribusi karyawan pada pesanan selesai.'
-                    : 'Menampilkan pesanan selesai yang memiliki hubungan kontribusi dengan Anda.'
+                    ? 'Menampilkan total sisi yang dikerjakan setiap karyawan dan riwayat pesanan pada periode ' + activeTimeRange.label + '.'
+                    : 'Menampilkan total sisi dan pesanan selesai Anda pada periode ' + activeTimeRange.label + '.'
                 }}
               </p>
             </div>
@@ -576,6 +1287,49 @@
             </div>
           </div>
 
+          <!-- Ringkasan Total Sisi per Karyawan -->
+          <div v-if="!loading && employeeSisiSummaryCards.length" class="borongan-sisi-summary-section">
+            <div class="borongan-sisi-summary-head">
+              <span class="borongan-sisi-summary-title">
+                <span class="material-symbols-rounded" style="font-size: 17px;">layers</span>
+                <span>Total Sisi per Karyawan ({{ activeTimeRange.label }})</span>
+              </span>
+              <span v-if="isSuperadmin && staffFilter" class="form-hint">
+                Filter aktif: klik kartu lagi atau pilih Semua Karyawan untuk reset
+              </span>
+              <span v-else-if="isSuperadmin" class="form-hint">
+                Klik kartu karyawan untuk memfilter tabel pesanan
+              </span>
+            </div>
+
+            <div class="borongan-sisi-cards">
+              <button
+                v-for="emp in employeeSisiSummaryCards"
+                :key="'sum_' + emp.uid"
+                type="button"
+                class="borongan-sisi-card"
+                :class="{
+                  'is-filtered': staffFilter === emp.uid,
+                  'is-clickable': isSuperadmin
+                }"
+                @click="toggleStaffFilterFromCard(emp.uid)"
+              >
+                <div class="borongan-sisi-card-top">
+                  <span class="borongan-sisi-emp-name">{{ emp.nama }}</span>
+                  <span class="role-badge" :class="emp.role">{{ emp.role }}</span>
+                </div>
+                <div class="borongan-sisi-val">
+                  {{ emp.totalSisi.toLocaleString('id-ID') }} <span>sisi</span>
+                </div>
+                <div class="borongan-sisi-meta">
+                  <span>{{ emp.totalQty.toLocaleString('id-ID') }} pcs</span>
+                  <span>&bull;</span>
+                  <span>{{ emp.orderCount }} pesanan</span>
+                </div>
+              </button>
+            </div>
+          </div>
+
           <div v-if="loading" class="empty-state">
             <div class="spinner spinner-lg" style="margin-bottom: 12px;"></div>
             <p>Memuat data borongan...</p>
@@ -585,11 +1339,17 @@
             <div class="empty-state-icon">
               <span class="material-symbols-rounded">payments</span>
             </div>
-            <h3>{{ (searchQuery || staffFilter) ? 'Data borongan tidak ditemukan' : 'Belum ada data borongan' }}</h3>
+            <h3>
+              {{
+                (searchQuery || staffFilter || timeFilterMode !== 'all')
+                  ? 'Data borongan tidak ditemukan pada filter ini'
+                  : 'Belum ada data borongan'
+              }}
+            </h3>
             <p>
               {{
-                (searchQuery || staffFilter)
-                  ? 'Coba ubah filter atau kata kunci pencarian.'
+                (searchQuery || staffFilter || timeFilterMode !== 'all')
+                  ? 'Coba ubah rentang waktu, filter karyawan, atau kata kunci pencarian.'
                   : 'Data muncul otomatis setelah pesanan diatur kontribusinya dan ditandai Selesai di menu Operasional.'
               }}
             </p>
@@ -601,7 +1361,7 @@
                 <tr>
                   <th class="col-no">No</th>
                   <th>Pesanan &amp; Produk</th>
-                  <th>Kontribusi Karyawan</th>
+                  <th>Kontribusi Karyawan (Qty &amp; Sisi)</th>
                   <th v-if="!isSuperadmin">Kontribusi Saya</th>
                   <th>Diselesaikan Oleh</th>
                   <th>Tanggal Selesai</th>
@@ -616,8 +1376,11 @@
                   <td data-label="Pesanan & Produk">
                     <div style="font-weight: 700;">{{ order.namaPemesan }}</div>
                     <div class="form-hint" style="margin-top: 2px;">
-                      {{ order.namaProduk }} • <strong>{{ order.jumlahProduk }} pcs</strong>
-                      <span v-if="order.namaAsalPesanan"> • {{ order.namaAsalPesanan }}</span>
+                      {{ order.namaProduk }} &bull;
+                      <strong>{{ order.jumlahProduk }} pcs</strong> &times;
+                      <strong>{{ getOrderSisiCount(order) }} sisi</strong> =
+                      <strong>{{ (Number(order.jumlahProduk) || 0) * getOrderSisiCount(order) }} sisi</strong>
+                      <span v-if="order.namaAsalPesanan"> &bull; {{ order.namaAsalPesanan }}</span>
                     </div>
                   </td>
                   <td class="sisi-cell" data-label="Kontribusi Karyawan">
@@ -629,11 +1392,17 @@
                         :class="{ 'is-me-chip': k.uid === currentUid }"
                       >
                         {{ k.nama }}: <strong>{{ k.qty }} pcs</strong>
+                        <span class="chip-sisi-sub">
+                          ({{ (Number(k.qty) || 0) * getOrderSisiCount(order) }} sisi)
+                        </span>
                       </span>
                     </div>
                   </td>
                   <td v-if="!isSuperadmin" data-label="Kontribusi Saya">
-                    <span class="badge-count">{{ getMyQtyInOrder(order) }} pcs</span>
+                    <div class="chips-wrap">
+                      <span class="badge-count">{{ getMyQtyInOrder(order) }} pcs</span>
+                      <span class="gaji-sisi-badge">{{ getMySisiInOrder(order) }} sisi</span>
+                    </div>
                   </td>
                   <td data-label="Diselesaikan Oleh">
                     <span class="completed-by-tag">
@@ -680,8 +1449,174 @@
           ></table-pagination>
         </div>
 
-        <!-- TAB 2: DAFTAR PENGAJUAN PERUBAHAN KONTRIBUSI -->
-        <div v-else class="card">
+        <!-- TAB 2: GAJI BORONGAN -->
+        <div v-else-if="activeTab === 'gaji'" class="card">
+          <div class="panel-toolbar">
+            <div class="panel-heading">
+              <h2>Gaji Borongan Karyawan</h2>
+              <p>
+                Periode: <strong>{{ activeTimeRange.label }}</strong> &bull; Rumus: Total Sisi Dikerjakan &times; Tarif Borongan per Sisi.
+              </p>
+            </div>
+
+            <div class="panel-actions" v-if="isSuperadmin">
+              <label class="gaji-filter-check">
+                <input v-model="gajiOnlyActiveWork" type="checkbox" />
+                <span>Hanya yang ada sisi (&gt; 0)</span>
+              </label>
+
+              <div class="search-box">
+                <span class="material-symbols-rounded input-icon">search</span>
+                <input
+                  v-model="gajiSearch"
+                  type="text"
+                  class="form-control"
+                  placeholder="Cari nama karyawan..."
+                  aria-label="Cari gaji karyawan"
+                />
+                <button
+                  v-if="gajiSearch"
+                  type="button"
+                  class="input-action-btn"
+                  aria-label="Hapus pencarian"
+                  @click="gajiSearch = ''"
+                >
+                  <span class="material-symbols-rounded" style="font-size: 18px;">close</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div
+            v-if="!loading && hasMissingTarif"
+            class="alert alert-warning"
+            style="margin: 14px 20px 0;"
+            role="status"
+          >
+            <span class="material-symbols-rounded">info</span>
+            <div>
+              Sebagian karyawan masih memiliki tarif borongan <strong>Rp 0 / sisi</strong>.
+              {{
+                isSuperadmin
+                  ? 'Atur nominal Borongan per Sisi pada menu Akun Karyawan agar total gaji terhitung.'
+                  : 'Hubungi Superadmin untuk mengatur tarif Borongan per Sisi akun Anda.'
+              }}
+            </div>
+          </div>
+
+          <div v-if="loading" class="empty-state">
+            <div class="spinner spinner-lg" style="margin-bottom: 12px;"></div>
+            <p>Menghitung gaji borongan...</p>
+          </div>
+
+          <div v-else-if="!filteredGajiRows.length" class="empty-state">
+            <div class="empty-state-icon">
+              <span class="material-symbols-rounded">account_balance_wallet</span>
+            </div>
+            <h3>Tidak ada data gaji borongan</h3>
+            <p>
+              {{
+                (gajiSearch || gajiOnlyActiveWork || timeFilterMode !== 'all')
+                  ? 'Tidak ada karyawan yang cocok dengan filter waktu atau pencarian saat ini.'
+                  : 'Belum ada data karyawan atau pesanan borongan yang selesai.'
+              }}
+            </p>
+          </div>
+
+          <div v-else class="table-container">
+            <table class="data-table responsive-table">
+              <thead>
+                <tr>
+                  <th class="col-no">No</th>
+                  <th>Karyawan</th>
+                  <th>Pesanan</th>
+                  <th>Total Qty</th>
+                  <th>Total Sisi</th>
+                  <th>Borongan / Sisi</th>
+                  <th>Total Gaji Borongan</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(row, index) in paginatedGajiRows" :key="row.uid">
+                  <td class="col-no" data-label="No">
+                    {{ (gajiPageSize === 'all' ? 0 : (gajiPage - 1) * Number(gajiPageSize)) + index + 1 }}
+                  </td>
+                  <td data-label="Karyawan">
+                    <div class="item-title-cell">
+                      <span class="item-mini-icon">
+                        <span class="material-symbols-rounded" style="font-size: 18px;">person</span>
+                      </span>
+                      <div>
+                        <div style="font-weight: 700;">{{ row.nama }}</div>
+                        <div style="display: flex; align-items: center; gap: 6px; margin-top: 2px;">
+                          <span class="role-badge" :class="row.role">{{ row.role }}</span>
+                          <span v-if="!row.active" class="status-badge danger">Nonaktif</span>
+                        </div>
+                      </div>
+                    </div>
+                  </td>
+                  <td data-label="Pesanan">
+                    <span>{{ row.orderCount }} pesanan</span>
+                  </td>
+                  <td data-label="Total Qty">
+                    <span class="badge-count">{{ row.totalQty.toLocaleString('id-ID') }} pcs</span>
+                  </td>
+                  <td data-label="Total Sisi">
+                    <span class="gaji-sisi-badge">
+                      {{ row.totalSisi.toLocaleString('id-ID') }} sisi
+                    </span>
+                  </td>
+                  <td data-label="Borongan / Sisi">
+                    <span v-if="row.boronganPerSisi > 0">
+                      <strong>{{ formatRupiah(row.boronganPerSisi) }}</strong>
+                      <span class="form-hint"> / sisi</span>
+                    </span>
+                    <span v-else class="form-hint">Rp 0 / sisi</span>
+                  </td>
+                  <td data-label="Total Gaji Borongan">
+                    <span class="gaji-amount" :class="{ 'is-zero': row.totalGaji <= 0 }">
+                      {{ formatRupiah(row.totalGaji) }}
+                    </span>
+                    <div v-if="row.totalSisi > 0 && row.boronganPerSisi > 0" class="form-hint" style="margin-top: 2px;">
+                      {{ row.totalSisi.toLocaleString('id-ID') }} sisi &times; {{ formatRupiah(row.boronganPerSisi) }}
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+              <tfoot>
+                <tr class="gaji-total-row">
+                  <td colspan="3" style="font-weight: 700;">
+                    Total ({{ activeTimeRange.label }})
+                  </td>
+                  <td data-label="Total Qty">
+                    <strong>{{ gajiGrandTotals.totalQty.toLocaleString('id-ID') }} pcs</strong>
+                  </td>
+                  <td data-label="Total Sisi">
+                    <span class="gaji-sisi-badge">
+                      {{ gajiGrandTotals.totalSisi.toLocaleString('id-ID') }} sisi
+                    </span>
+                  </td>
+                  <td></td>
+                  <td data-label="Total Gaji Borongan">
+                    <span class="gaji-amount">{{ formatRupiah(gajiGrandTotals.totalGaji) }}</span>
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+
+          <table-pagination
+            v-if="!loading && filteredGajiRows.length"
+            :total-items="filteredGajiRows.length"
+            :current-page="gajiPage"
+            :page-size="gajiPageSize"
+            @update:current-page="gajiPage = $event"
+            @update:page-size="gajiPageSize = $event"
+          ></table-pagination>
+        </div>
+
+        <!-- TAB 3: DAFTAR PENGAJUAN PERUBAHAN KONTRIBUSI -->
+        <div v-else-if="activeTab === 'pengajuan'" class="card">
           <div class="panel-toolbar">
             <div class="panel-heading">
               <h2>Daftar Pengajuan Perubahan Kontribusi</h2>
@@ -757,9 +1692,14 @@
                   </td>
                   <td data-label="Pesanan & Pengaju">
                     <div style="font-weight: 700;">{{ req.namaPemesan }}</div>
-                    <div class="form-hint">{{ req.namaProduk }} • {{ req.jumlahProduk }} pcs</div>
+                    <div class="form-hint">
+                      {{ req.namaProduk }} &bull; {{ req.jumlahProduk }} pcs
+                      <span v-if="getRequestSisiCount(req) > 0">
+                        ({{ getRequestSisiCount(req) }} sisi)
+                      </span>
+                    </div>
                     <div class="form-hint" style="margin-top: 4px;">
-                      Pengaju: <strong>{{ req.requestedByName }}</strong> • {{ formatDateTime(req.createdAt) }}
+                      Pengaju: <strong>{{ req.requestedByName }}</strong> &bull; {{ formatDateTime(req.createdAt) }}
                     </div>
                   </td>
                   <td class="sisi-cell" data-label="Perubahan Kontribusi">
@@ -769,6 +1709,9 @@
                         <div class="chips-wrap">
                           <span v-for="k in req.oldKontribusi" :key="'old_' + k.uid" class="chip">
                             {{ k.nama }}: {{ k.qty }} pcs
+                            <span v-if="getRequestSisiCount(req) > 0" class="chip-sisi-sub">
+                              ({{ (Number(k.qty) || 0) * getRequestSisiCount(req) }} sisi)
+                            </span>
                           </span>
                         </div>
                       </div>
@@ -782,6 +1725,9 @@
                             :class="{ 'is-me-chip': k.uid === currentUid }"
                           >
                             {{ k.nama }}: <strong>{{ k.qty }} pcs</strong>
+                            <span v-if="getRequestSisiCount(req) > 0" class="chip-sisi-sub">
+                              ({{ (Number(k.qty) || 0) * getRequestSisiCount(req) }} sisi)
+                            </span>
                           </span>
                         </div>
                       </div>
@@ -865,7 +1811,8 @@
               <div>
                 <h3 class="modal-title">Ajukan Perubahan Kontribusi</h3>
                 <div class="form-hint">
-                  {{ changeModal.order.namaPemesan }} — {{ changeModal.order.namaProduk }} ({{ changeTargetQty }} pcs)
+                  {{ changeModal.order.namaPemesan }} — {{ changeModal.order.namaProduk }}
+                  ({{ changeTargetQty }} pcs &times; {{ changeModalSisiCount }} sisi = <strong>{{ changeTargetSisi }} sisi</strong>)
                 </div>
               </div>
               <button
@@ -893,10 +1840,19 @@
                     complete: changeDraftTotal === changeTargetQty
                   }"
                 >
-                  <div>
-                    <div style="font-size: 12px; opacity: 0.85;">Total Usulan Kontribusi Baru</div>
-                    <div style="font-size: 18px; font-weight: 700;">
-                      {{ changeDraftTotal }} / {{ changeTargetQty }} pcs
+                  <div class="kontribusi-summary-metrics">
+                    <div>
+                      <div style="font-size: 11.5px; opacity: 0.85;">Usulan Qty</div>
+                      <div style="font-size: 16px; font-weight: 700;">
+                        {{ changeDraftTotal }} / {{ changeTargetQty }} pcs
+                      </div>
+                    </div>
+                    <div class="kontribusi-summary-divider"></div>
+                    <div>
+                      <div style="font-size: 11.5px; opacity: 0.85;">Total Sisi ({{ changeModalSisiCount }} sisi / pcs)</div>
+                      <div style="font-size: 18px; font-weight: 800;">
+                        {{ changeDraftTotalSisi }} / {{ changeTargetSisi }} sisi
+                      </div>
                     </div>
                   </div>
                   <div style="text-align: right; font-size: 12.5px; font-weight: 600;">
@@ -921,6 +1877,16 @@
                       <span class="role-badge" :class="row.role">{{ row.role }}</span>
                     </div>
                     <div class="kontribusi-qty-wrap">
+                      <span
+                        class="kontribusi-sisi-calc"
+                        :class="{ 'is-active': (parseInt(row.qty, 10) || 0) > 0 }"
+                      >
+                        <template v-if="(parseInt(row.qty, 10) || 0) > 0">
+                          {{ Math.max(0, parseInt(row.qty, 10) || 0) }} &times; {{ changeModalSisiCount }} =
+                          <strong>{{ Math.max(0, parseInt(row.qty, 10) || 0) * changeModalSisiCount }} sisi</strong>
+                        </template>
+                        <template v-else>0 sisi</template>
+                      </span>
                       <input
                         v-model.number="row.qty"
                         type="number"

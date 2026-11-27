@@ -14,6 +14,16 @@
     return db;
   }
 
+  function normalizeBoronganPerSisi(val) {
+    if (val === null || val === undefined || val === '') return 0;
+    if (typeof val === 'number') {
+      return isFinite(val) ? Math.max(0, Math.round(val)) : 0;
+    }
+    var cleaned = String(val).replace(/[^\d-]/g, '');
+    var num = parseInt(cleaned, 10);
+    return isFinite(num) ? Math.max(0, num) : 0;
+  }
+
   function mapAuthCreateError(err) {
     var code = err && err.code ? err.code : '';
     if (code === 'auth/email-already-in-use') {
@@ -46,6 +56,7 @@
           nama: fallbackName,
           role: 'superadmin',
           active: true,
+          boronganPerSisi: 0,
           isImplicitSuperadmin: true
         };
       }
@@ -57,6 +68,7 @@
         nama: data.nama || fallbackName,
         role: data.role || 'karyawan',
         active: data.active !== false,
+        boronganPerSisi: normalizeBoronganPerSisi(data.boronganPerSisi),
         isImplicitSuperadmin: false
       };
     },
@@ -72,6 +84,7 @@
           email: data.email || '',
           role: data.role || 'karyawan',
           active: data.active !== false,
+          boronganPerSisi: normalizeBoronganPerSisi(data.boronganPerSisi),
           createdByName: data.createdByName || '',
           createdAt: data.createdAt || null,
           updatedAt: data.updatedAt || null
@@ -94,6 +107,7 @@
                 email: data.email || '',
                 role: data.role || 'karyawan',
                 active: data.active !== false,
+                boronganPerSisi: normalizeBoronganPerSisi(data.boronganPerSisi),
                 createdByName: data.createdByName || '',
                 createdAt: data.createdAt || null,
                 updatedAt: data.updatedAt || null
@@ -120,6 +134,7 @@
       var email = (payload.email || '').trim().toLowerCase();
       var password = String(payload.password || '');
       var role = payload.role === 'admin' ? 'admin' : 'karyawan';
+      var boronganPerSisi = normalizeBoronganPerSisi(payload.boronganPerSisi);
 
       if (!nama) throw new Error('Nama lengkap wajib diisi.');
       if (!email) throw new Error('Email wajib diisi.');
@@ -149,6 +164,7 @@
           email: email,
           role: role,
           active: true,
+          boronganPerSisi: boronganPerSisi,
           createdByUid: actor.uid || '',
           createdByName: actor.nama || actor.email || 'Superadmin',
           createdAt: global.ZcpFirebase.serverTimestamp(),
@@ -167,11 +183,23 @@
           action: 'CREATE',
           module: 'Akun Karyawan',
           targetName: nama,
-          details: 'Membuat akun ' + role + ' (' + email + ')'
+          details:
+            'Membuat akun ' +
+            role +
+            ' (' +
+            email +
+            '), Borongan/sisi: Rp ' +
+            boronganPerSisi.toLocaleString('id-ID')
         });
       }
 
-      return { uid: newUid, nama: nama, email: email, role: role };
+      return {
+        uid: newUid,
+        nama: nama,
+        email: email,
+        role: role,
+        boronganPerSisi: boronganPerSisi
+      };
     },
 
     updateUserAccount: async function (uid, payload) {
@@ -189,19 +217,33 @@
             : 'karyawan';
       var active = payload.active !== false;
 
-      await db.collection(USERS_COLLECTION).doc(uid).update({
+      var updateData = {
         nama: nama,
         role: role,
         active: active,
         updatedAt: global.ZcpFirebase.serverTimestamp()
-      });
+      };
+
+      var hasRate = payload.boronganPerSisi !== undefined;
+      var boronganPerSisi = 0;
+      if (hasRate) {
+        boronganPerSisi = normalizeBoronganPerSisi(payload.boronganPerSisi);
+        updateData.boronganPerSisi = boronganPerSisi;
+      }
+
+      await db.collection(USERS_COLLECTION).doc(uid).update(updateData);
 
       if (global.ZcpActivityLogService) {
         await global.ZcpActivityLogService.logActivity({
           action: 'UPDATE',
           module: 'Akun Karyawan',
           targetName: nama,
-          details: 'Role: ' + role + ', Status: ' + (active ? 'Aktif' : 'Nonaktif')
+          details:
+            'Role: ' +
+            role +
+            ', Status: ' +
+            (active ? 'Aktif' : 'Nonaktif') +
+            (hasRate ? ', Borongan/sisi: Rp ' + boronganPerSisi.toLocaleString('id-ID') : '')
         });
       }
     },

@@ -4638,3 +4638,379 @@ textarea {
   background: var(--border-color);
   margin: 2px 0;
 }
+
+/* =========================================================
+   Revisi Borongan: Sisi, Gaji Borongan, Filter Waktu & Tarif
+   ========================================================= */
+.input-prefix-wrap {
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+}
+
+.input-prefix-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12px;
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border-color);
+  border-right: none;
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.input-prefix-wrap .form-control {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.chip-sisi-sub {
+  margin-left: 4px;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.kontribusi-summary-metrics {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.kontribusi-summary-divider {
+  width: 1px;
+  height: 30px;
+  background: var(--border-color);
+  opacity: 0.7;
+}
+
+.kontribusi-sisi-calc {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.kontribusi-sisi-calc.is-active {
+  background: var(--accent-info-soft);
+  border-color: rgba(37, 99, 235, 0.35);
+  color: var(--accent-info);
+}
+
+.borongan-time-bar {
+  padding: 14px 18px;
+  margin-bottom: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.borongan-time-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.time-mode-pills {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.time-pill {
+  border: 1px solid var(--border-color);
+  background: var(--bg-surface-2);
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
+  padding: 6px 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.time-pill:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.time-pill.active {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+  color: #ffffff;
+}
+
+.time-quick-chips {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.time-quick-btn {
+  border: 1px dashed var(--border-strong);
+  background: transparent;
+  color: var(--text-secondary);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.time-quick-btn:hover {
+  border-color: var(--accent-info);
+  color: var(--accent-info);
+  background: var(--accent-info-soft);
+}
+
+.time-quick-btn.active {
+  border-style: solid;
+  border-color: var(--accent-info);
+  background: var(--accent-info-soft);
+  color: var(--accent-info);
+}
+
+.borongan-time-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-color);
+}
+
+.time-picker-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.time-input {
+  width: auto;
+  min-width: 155px;
+  height: 34px;
+  font-size: 13px;
+}
+
+.btn-icon-sq {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.time-period-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border-color);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.time-reset-link {
+  border: none;
+  background: transparent;
+  color: var(--accent-danger);
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0 2px;
+  margin-left: 4px;
+}
+
+.borongan-sisi-summary-section {
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-surface-2);
+}
+
+.borongan-sisi-summary-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.borongan-sisi-summary-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.borongan-sisi-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(195px, 1fr));
+  gap: 10px;
+}
+
+.borongan-sisi-card {
+  text-align: left;
+  padding: 11px 13px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  cursor: default;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.borongan-sisi-card.is-clickable {
+  cursor: pointer;
+}
+
+.borongan-sisi-card.is-clickable:hover {
+  border-color: var(--accent-info);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-card);
+}
+
+.borongan-sisi-card.is-filtered {
+  border-color: var(--accent-info);
+  background: var(--accent-info-soft);
+  box-shadow: 0 0 0 1px var(--accent-info);
+}
+
+.borongan-sisi-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.borongan-sisi-emp-name {
+  font-size: 13px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.borongan-sisi-val {
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--accent-info);
+  line-height: 1.15;
+}
+
+.borongan-sisi-val span {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.borongan-sisi-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.gaji-sisi-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  background: var(--accent-info-soft);
+  color: var(--accent-info);
+  border: 1px solid rgba(37, 99, 235, 0.25);
+}
+
+.gaji-amount {
+  font-size: 14.5px;
+  font-weight: 800;
+  color: #059669;
+}
+
+[data-theme="dark"] .gaji-amount {
+  color: #34d399;
+}
+
+.gaji-amount.is-zero {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.gaji-total-row td {
+  background: var(--bg-surface-2);
+  border-top: 2px solid var(--border-strong);
+  padding-top: 13px;
+  padding-bottom: 13px;
+}
+
+.gaji-filter-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.gaji-rate-text {
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+@media (max-width: 767px) {
+  .borongan-time-bar {
+    padding: 12px;
+  }
+
+  .borongan-sisi-summary-section {
+    padding: 12px;
+  }
+
+  .kontribusi-summary-bar {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .kontribusi-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .kontribusi-qty-wrap {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .gaji-total-row td:empty {
+    display: none;
+  }
+}
