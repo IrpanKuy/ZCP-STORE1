@@ -8,6 +8,7 @@
   var EXPEDISI_COLLECTION = 'master_expedisi';
   var ASAL_PESANAN_COLLECTION = 'master_asal_pesanan';
   var KATEGORI_PRODUK_COLLECTION = 'master_kategori_produk';
+  var STATUS_SHOPEE_COLLECTION = 'master_status_shopee';
 
   function getDbOrThrow() {
     var db = global.ZcpFirebase && global.ZcpFirebase.getDb();
@@ -210,6 +211,20 @@
         return {
           id: doc.id,
           namaKategori: data.namaKategori || '',
+          createdAt: data.createdAt || null,
+          updatedAt: data.updatedAt || null
+        };
+      });
+    },
+
+    fetchStatusShopee: async function () {
+      var db = getDbOrThrow();
+      var snapshot = await db.collection(STATUS_SHOPEE_COLLECTION).orderBy('createdAt', 'desc').get();
+      return snapshot.docs.map(function (doc) {
+        var data = doc.data() || {};
+        return {
+          id: doc.id,
+          namaStatus: data.namaStatus || '',
           createdAt: data.createdAt || null,
           updatedAt: data.updatedAt || null
         };
@@ -539,6 +554,72 @@
           module: 'Master Kategori Produk',
           targetName: targetName || id,
           details: 'Menghapus master kategori produk'
+        });
+      }
+    },
+
+    addStatusShopee: async function (payload) {
+      var db = getDbOrThrow();
+      var namaStatus = (payload.namaStatus || '').trim();
+      if (!namaStatus) {
+        throw new Error('Nama status pesanan Shopee wajib diisi.');
+      }
+
+      var res = await db.collection(STATUS_SHOPEE_COLLECTION).add({
+        namaStatus: namaStatus,
+        createdAt: global.ZcpFirebase.serverTimestamp(),
+        updatedAt: global.ZcpFirebase.serverTimestamp()
+      });
+
+      if (global.ZcpActivityLogService) {
+        await global.ZcpActivityLogService.logActivity({
+          action: 'CREATE',
+          module: 'Master Status Pesanan Shopee',
+          targetName: namaStatus,
+          details: 'Menambahkan status pesanan Shopee baru'
+        });
+      }
+      return res;
+    },
+
+    updateStatusShopee: async function (id, payload) {
+      var db = getDbOrThrow();
+      var namaStatus = (payload.namaStatus || '').trim();
+      if (!id) {
+        throw new Error('ID status pesanan Shopee tidak valid.');
+      }
+      if (!namaStatus) {
+        throw new Error('Nama status pesanan Shopee wajib diisi.');
+      }
+
+      await db.collection(STATUS_SHOPEE_COLLECTION).doc(id).update({
+        namaStatus: namaStatus,
+        updatedAt: global.ZcpFirebase.serverTimestamp()
+      });
+
+      if (global.ZcpActivityLogService) {
+        await global.ZcpActivityLogService.logActivity({
+          action: 'UPDATE',
+          module: 'Master Status Pesanan Shopee',
+          targetName: namaStatus,
+          details: 'Memperbarui nama status pesanan Shopee'
+        });
+      }
+    },
+
+    deleteStatusShopee: async function (id, targetName) {
+      var db = getDbOrThrow();
+      if (!id) {
+        throw new Error('ID status pesanan Shopee tidak valid.');
+      }
+      await db.collection(STATUS_SHOPEE_COLLECTION).doc(id).delete();
+
+      if (global.ZcpActivityLogService) {
+        await global.ZcpActivityLogService.logActivity({
+          action: 'DELETE',
+          module: 'Master Status Pesanan Shopee',
+          targetName: targetName || id,
+          details: 'Menghapus master status pesanan Shopee'
         });
       }
     }

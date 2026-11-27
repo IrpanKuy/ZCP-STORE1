@@ -38,6 +38,12 @@
           return [];
         }
       },
+      statusShopeeList: {
+        type: Array,
+        default: function () {
+          return [];
+        }
+      },
       loading: { type: Boolean, default: false },
       driveReady: { type: Boolean, default: false },
       userRole: { type: String, default: 'superadmin' },
@@ -55,12 +61,14 @@
         kategoriFilter: '',
         produkFilter: '',
         asalFilter: '',
+        statusShopeeFilter: '',
         currentPage: 1,
         localPageSize: this.defaultPageSize,
         modalOpen: false,
         editingOrder: null,
         saving: false,
         togglingSablonMap: {},
+        updatingStatusShopeeMap: {},
         uploadProgressText: '',
         formError: '',
         isDragging: false,
@@ -78,6 +86,9 @@
           selectedExpedisiKey: '',
           snapshotExpedisiId: '',
           snapshotExpedisiName: '',
+          selectedStatusShopeeKey: '',
+          snapshotStatusShopeeId: '',
+          snapshotStatusShopeeName: '',
           catatan: '',
           anggapSablonSelesai: false,
           existingFiles: [],
@@ -105,6 +116,9 @@
         this.currentPage = 1;
       },
       asalFilter: function () {
+        this.currentPage = 1;
+      },
+      statusShopeeFilter: function () {
         this.currentPage = 1;
       }
     },
@@ -165,26 +179,52 @@
         });
         return names.sort();
       },
+      statusShopeeFilterOptions: function () {
+        var map = {};
+        var names = [];
+        this.statusShopeeList.forEach(function (st) {
+          if (st && st.namaStatus && !map[st.namaStatus]) {
+            map[st.namaStatus] = true;
+            names.push(st.namaStatus);
+          }
+        });
+        var self = this;
+        this.pesananList.forEach(function (o) {
+          var sName = self.resolveOrderStatusShopeeName(o);
+          if (sName && !map[sName]) {
+            map[sName] = true;
+            names.push(sName);
+          }
+        });
+        return names.sort();
+      },
       filteredList: function () {
         var q = this.searchQuery.trim().toLowerCase();
         var status = this.statusFilter;
         var katFilter = this.kategoriFilter;
         var produk = this.produkFilter;
         var asal = this.asalFilter;
+        var shopeeFilter = this.statusShopeeFilter;
         var self = this;
 
         return this.pesananList.filter(function (order) {
           var katName = self.resolveOrderKategoriName(order);
+          var shopeeName = self.resolveOrderStatusShopeeName(order);
           if (status === 'active' && order.statusSelesai) return false;
           if (status === 'done' && !order.statusSelesai) return false;
           if (katFilter && katName !== katFilter) return false;
           if (produk && order.namaProduk !== produk) return false;
           if (asal && order.namaAsalPesanan !== asal) return false;
+          if (shopeeFilter === '__empty__' && shopeeName) return false;
+          if (shopeeFilter && shopeeFilter !== '__empty__' && shopeeName !== shopeeFilter) {
+            return false;
+          }
           if (!q) return true;
 
           var matchPemesan = (order.namaPemesan || '').toLowerCase().indexOf(q) !== -1;
           var matchProduk = (order.namaProduk || '').toLowerCase().indexOf(q) !== -1;
           var matchKategori = katName.toLowerCase().indexOf(q) !== -1;
+          var matchShopee = shopeeName.toLowerCase().indexOf(q) !== -1;
           var matchTemplate = (order.namaTemplateSisi || '').toLowerCase().indexOf(q) !== -1;
           var matchAsal = (order.namaAsalPesanan || '').toLowerCase().indexOf(q) !== -1;
           var matchExpedisi = (order.namaExpedisi || '').toLowerCase().indexOf(q) !== -1;
@@ -199,6 +239,7 @@
             matchPemesan ||
             matchProduk ||
             matchKategori ||
+            matchShopee ||
             matchTemplate ||
             matchAsal ||
             matchExpedisi ||
@@ -239,6 +280,16 @@
         for (var i = 0; i < this.asalPesananList.length; i++) {
           if (this.asalPesananList[i].id === key) {
             return this.asalPesananList[i];
+          }
+        }
+        return null;
+      },
+      selectedStatusShopeeObj: function () {
+        var key = this.form.selectedStatusShopeeKey;
+        if (!key || key === '__snapshot__') return null;
+        for (var i = 0; i < this.statusShopeeList.length; i++) {
+          if (this.statusShopeeList[i].id === key) {
+            return this.statusShopeeList[i];
           }
         }
         return null;
@@ -323,6 +374,34 @@
         }
         return this.resolveKategoriByIdOrName(order.kategoriId, order.namaKategori);
       },
+      resolveOrderStatusShopeeName: function (order) {
+        if (!order) return '';
+        if (order.statusShopeeId) {
+          for (var i = 0; i < this.statusShopeeList.length; i++) {
+            if (this.statusShopeeList[i].id === order.statusShopeeId) {
+              return this.statusShopeeList[i].namaStatus || order.namaStatusShopee || '';
+            }
+          }
+        }
+        return order.namaStatusShopee || '';
+      },
+      getOrderStatusShopeeSelectValue: function (order) {
+        if (!order) return '';
+        if (order.statusShopeeId) {
+          var byId = this.statusShopeeList.find(function (st) {
+            return st.id === order.statusShopeeId;
+          });
+          if (byId) return byId.id;
+        }
+        if (order.namaStatusShopee) {
+          var byName = this.statusShopeeList.find(function (st) {
+            return st.namaStatus === order.namaStatusShopee;
+          });
+          if (byName) return byName.id;
+          return '__snapshot__';
+        }
+        return '';
+      },
       getProductTemplateCount: function (produk) {
         if (global.ZcpMasterService && global.ZcpMasterService.normalizeTemplateSisiList) {
           return global.ZcpMasterService.normalizeTemplateSisiList(
@@ -360,6 +439,9 @@
           selectedExpedisiKey: '',
           snapshotExpedisiId: '',
           snapshotExpedisiName: '',
+          selectedStatusShopeeKey: '',
+          snapshotStatusShopeeId: '',
+          snapshotStatusShopeeName: '',
           catatan: '',
           anggapSablonSelesai: false,
           existingFiles: [],
@@ -390,6 +472,12 @@
         });
         var matchedAsal = this.asalPesananList.find(function (a) {
           return a.id === order.asalPesananId || a.namaAsal === order.namaAsalPesanan;
+        });
+        var matchedShopee = this.statusShopeeList.find(function (st) {
+          return (
+            (order.statusShopeeId && st.id === order.statusShopeeId) ||
+            (order.namaStatusShopee && st.namaStatus === order.namaStatusShopee)
+          );
         });
 
         var tplKey = '';
@@ -437,6 +525,13 @@
           selectedExpedisiKey: matchedExpedisi ? matchedExpedisi.id : '__snapshot__',
           snapshotExpedisiId: order.expedisiId || '',
           snapshotExpedisiName: order.namaExpedisi || '',
+          selectedStatusShopeeKey: matchedShopee
+            ? matchedShopee.id
+            : order.namaStatusShopee
+            ? '__snapshot__'
+            : '',
+          snapshotStatusShopeeId: order.statusShopeeId || '',
+          snapshotStatusShopeeName: order.namaStatusShopee || '',
           catatan: order.catatan || '',
           anggapSablonSelesai: Boolean(order.anggapSablonSelesai),
           existingFiles: Array.isArray(order.fileDesigns)
@@ -656,6 +751,16 @@
             namaKategori = this.resolveOrderKategoriName(this.editingOrder);
           }
 
+          var statusShopeeId = '';
+          var namaStatusShopee = '';
+          if (this.selectedStatusShopeeObj) {
+            statusShopeeId = this.selectedStatusShopeeObj.id;
+            namaStatusShopee = this.selectedStatusShopeeObj.namaStatus;
+          } else if (this.form.selectedStatusShopeeKey === '__snapshot__') {
+            statusShopeeId = this.form.snapshotStatusShopeeId;
+            namaStatusShopee = this.form.snapshotStatusShopeeName;
+          }
+
           var payload = {
             namaPemesan: namaPemesan,
             asalPesananId: asalPesananId,
@@ -672,6 +777,8 @@
             fileDesigns: mergedFiles,
             expedisiId: expedisiId,
             namaExpedisi: namaExpedisi,
+            statusShopeeId: statusShopeeId,
+            namaStatusShopee: namaStatusShopee,
             catatan: this.form.catatan,
             anggapSablonSelesai: Boolean(this.form.anggapSablonSelesai)
           };
@@ -733,6 +840,46 @@
           });
         } finally {
           this.togglingSablonMap[order.id] = false;
+        }
+      },
+      onChangeOrderStatusShopee: async function (order, rawKey) {
+        if (this.isReadOnly || !order || this.updatingStatusShopeeMap[order.id]) return;
+        if (rawKey === '__snapshot__') return;
+
+        var statusShopeeId = '';
+        var namaStatusShopee = '';
+        if (rawKey) {
+          var found = this.statusShopeeList.find(function (st) {
+            return st.id === rawKey;
+          });
+          if (!found) return;
+          statusShopeeId = found.id;
+          namaStatusShopee = found.namaStatus;
+        }
+
+        this.updatingStatusShopeeMap[order.id] = true;
+        try {
+          await global.ZcpPesananService.updateStatusShopee(
+            order.id,
+            {
+              statusShopeeId: statusShopeeId,
+              namaStatusShopee: namaStatusShopee
+            },
+            order
+          );
+          this.$emit('notify', {
+            type: 'success',
+            message: namaStatusShopee
+              ? 'Status Shopee "' + order.namaPemesan + '" diubah ke "' + namaStatusShopee + '".'
+              : 'Status Shopee "' + order.namaPemesan + '" dikosongkan.'
+          });
+        } catch (err) {
+          this.$emit('notify', {
+            type: 'error',
+            message: (err && err.message) || 'Gagal mengubah status pesanan Shopee.'
+          });
+        } finally {
+          this.updatingStatusShopeeMap[order.id] = false;
         }
       },
       confirmDelete: function (order) {
@@ -881,6 +1028,14 @@
                 </option>
               </select>
 
+              <select v-model="statusShopeeFilter" class="filter-select" aria-label="Filter status pesanan Shopee">
+                <option value="">Semua Status Shopee</option>
+                <option value="__empty__">Belum Ada Status Shopee</option>
+                <option v-for="sName in statusShopeeFilterOptions" :key="sName" :value="sName">
+                  {{ sName }}
+                </option>
+              </select>
+
               <button v-if="!isReadOnly" type="button" class="btn btn-primary" @click="openAddModal">
                 <span class="material-symbols-rounded" style="font-size: 19px;">add</span>
                 <span>Tambah Pesanan</span>
@@ -897,16 +1052,16 @@
             <div class="empty-state-icon">
               <span class="material-symbols-rounded">shopping_bag</span>
             </div>
-            <h3>{{ (searchQuery || statusFilter !== 'all' || kategoriFilter || produkFilter || asalFilter) ? 'Pesanan tidak ditemukan' : 'Belum ada data pesanan' }}</h3>
+            <h3>{{ (searchQuery || statusFilter !== 'all' || kategoriFilter || produkFilter || asalFilter || statusShopeeFilter) ? 'Pesanan tidak ditemukan' : 'Belum ada data pesanan' }}</h3>
             <p>
               {{
-                (searchQuery || statusFilter !== 'all' || kategoriFilter || produkFilter || asalFilter)
+                (searchQuery || statusFilter !== 'all' || kategoriFilter || produkFilter || asalFilter || statusShopeeFilter)
                   ? 'Coba ubah kata kunci pencarian atau reset filter di atas.'
                   : (isReadOnly ? 'Belum ada data pesanan yang tercatat.' : 'Tambahkan pesanan pertama dengan memilih produk, template sisi, asal pesanan, dan expedisi.')
               }}
             </p>
             <button
-              v-if="!isReadOnly && !(searchQuery || statusFilter !== 'all' || kategoriFilter || produkFilter || asalFilter)"
+              v-if="!isReadOnly && !(searchQuery || statusFilter !== 'all' || kategoriFilter || produkFilter || asalFilter || statusShopeeFilter)"
               type="button"
               class="btn btn-primary"
               @click="openAddModal"
@@ -1025,6 +1180,38 @@
                         style="font-size: 11px;"
                       >
                         Sablon Dianggap Selesai
+                      </span>
+
+                      <select
+                        v-if="!isReadOnly"
+                        class="shopee-inline-select"
+                        :value="getOrderStatusShopeeSelectValue(order)"
+                        :disabled="Boolean(updatingStatusShopeeMap[order.id])"
+                        aria-label="Ubah status pesanan Shopee"
+                        title="Ubah status pesanan Shopee"
+                        @change="onChangeOrderStatusShopee(order, $event.target.value)"
+                      >
+                        <option value="">-- Status Shopee --</option>
+                        <option
+                          v-if="getOrderStatusShopeeSelectValue(order) === '__snapshot__'"
+                          value="__snapshot__"
+                        >
+                          {{ order.namaStatusShopee }} (Master dihapus)
+                        </option>
+                        <option
+                          v-for="st in statusShopeeList"
+                          :key="st.id"
+                          :value="st.id"
+                        >
+                          {{ st.namaStatus }}
+                        </option>
+                      </select>
+                      <span
+                        v-else-if="resolveOrderStatusShopeeName(order)"
+                        class="shopee-status-badge"
+                      >
+                        <span class="material-symbols-rounded" style="font-size: 13px;">local_mall</span>
+                        <span>{{ resolveOrderStatusShopeeName(order) }}</span>
                       </span>
                     </div>
                   </td>
@@ -1275,6 +1462,33 @@
                       </option>
                     </select>
                   </div>
+                </div>
+
+                <div class="form-group">
+                  <label class="form-label" for="pesanan-status-shopee">
+                    Status Pesanan Shopee (Opsional)
+                  </label>
+                  <select
+                    id="pesanan-status-shopee"
+                    v-model="form.selectedStatusShopeeKey"
+                    class="form-select"
+                    :disabled="saving"
+                  >
+                    <option value="">-- Tidak Ada / Belum Diatur --</option>
+                    <option
+                      v-if="form.selectedStatusShopeeKey === '__snapshot__'"
+                      value="__snapshot__"
+                    >
+                      {{ form.snapshotStatusShopeeName }} (Master dihapus)
+                    </option>
+                    <option
+                      v-for="st in statusShopeeList"
+                      :key="st.id"
+                      :value="st.id"
+                    >
+                      {{ st.namaStatus }}
+                    </option>
+                  </select>
                 </div>
 
                 <!-- Preview Sisi dari Template Terpilih -->

@@ -18,13 +18,20 @@
       kategoriCount: { type: Number, default: 0 },
       expedisiCount: { type: Number, default: 0 },
       asalPesananCount: { type: Number, default: 0 },
+      statusShopeeCount: { type: Number, default: 0 },
       boronganBadgeCount: { type: Number, default: 0 },
       usersCount: { type: Number, default: 0 }
     },
     emits: ['navigate', 'close', 'logout'],
     computed: {
       masterTotal: function () {
-        return this.produkCount + this.kategoriCount + this.expedisiCount + this.asalPesananCount;
+        return (
+          this.produkCount +
+          this.kategoriCount +
+          this.expedisiCount +
+          this.asalPesananCount +
+          this.statusShopeeCount
+        );
       },
       avatarInitial: function () {
         var source = this.userName || this.userEmail;

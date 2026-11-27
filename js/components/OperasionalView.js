@@ -30,6 +30,12 @@
           return [];
         }
       },
+      statusShopeeList: {
+        type: Array,
+        default: function () {
+          return [];
+        }
+      },
       staffList: {
         type: Array,
         default: function () {
@@ -51,12 +57,15 @@
         searchQuery: '',
         statusFilter: 'all',
         kategoriFilter: '',
+        statusShopeeFilter: '',
         currentPage: 1,
         localPageSize: this.defaultPageSize,
         selectedIds: [],
         bulkMulai: '',
         bulkDeadline: '',
         bulkSaving: false,
+        bulkStatusShopeeKey: '',
+        bulkStatusShopeeSaving: false,
         draftDates: {},
         dirtyMap: {},
         savingIdMap: {},
@@ -82,6 +91,9 @@
         this.currentPage = 1;
       },
       kategoriFilter: function () {
+        this.currentPage = 1;
+      },
+      statusShopeeFilter: function () {
         this.currentPage = 1;
       },
       pesananList: {
@@ -178,15 +190,36 @@
         });
         return names.sort();
       },
+      statusShopeeFilterOptions: function () {
+        var map = {};
+        var names = [];
+        this.statusShopeeList.forEach(function (st) {
+          if (st && st.namaStatus && !map[st.namaStatus]) {
+            map[st.namaStatus] = true;
+            names.push(st.namaStatus);
+          }
+        });
+        var self = this;
+        this.pesananList.forEach(function (o) {
+          var sName = self.resolveOrderStatusShopeeName(o);
+          if (sName && !map[sName]) {
+            map[sName] = true;
+            names.push(sName);
+          }
+        });
+        return names.sort();
+      },
       filteredList: function () {
         var q = this.searchQuery.trim().toLowerCase();
         var filter = this.statusFilter;
         var katFilter = this.kategoriFilter;
+        var shopeeFilter = this.statusShopeeFilter;
         var self = this;
 
         return this.pesananList.filter(function (order) {
           var deadlineStatus = global.ZcpPesananService.getDeadlineStatus(order);
           var katName = self.resolveOrderKategoriName(order);
+          var shopeeName = self.resolveOrderStatusShopeeName(order);
 
           if (filter === 'active' && order.statusSelesai) return false;
           if (filter === 'done' && !order.statusSelesai) return false;
@@ -195,11 +228,16 @@
             return false;
           }
           if (katFilter && katName !== katFilter) return false;
+          if (shopeeFilter === '__empty__' && shopeeName) return false;
+          if (shopeeFilter && shopeeFilter !== '__empty__' && shopeeName !== shopeeFilter) {
+            return false;
+          }
 
           if (!q) return true;
           var matchPemesan = (order.namaPemesan || '').toLowerCase().indexOf(q) !== -1;
           var matchProduk = (order.namaProduk || '').toLowerCase().indexOf(q) !== -1;
           var matchKategori = katName.toLowerCase().indexOf(q) !== -1;
+          var matchShopee = shopeeName.toLowerCase().indexOf(q) !== -1;
           var matchAsal = (order.namaAsalPesanan || '').toLowerCase().indexOf(q) !== -1;
           var matchExpedisi = (order.namaExpedisi || '').toLowerCase().indexOf(q) !== -1;
           var matchSisi =
@@ -208,7 +246,15 @@
               return String(s).toLowerCase().indexOf(q) !== -1;
             });
 
-          return matchPemesan || matchProduk || matchKategori || matchAsal || matchExpedisi || matchSisi;
+          return (
+            matchPemesan ||
+            matchProduk ||
+            matchKategori ||
+            matchShopee ||
+            matchAsal ||
+            matchExpedisi ||
+            matchSisi
+          );
         });
       },
       activeFilteredOrders: function () {
@@ -408,6 +454,71 @@
         } finally {
           this.bulkSaving = false;
         }
+      },
+      applyBulkStatusShopee: async function () {
+        if (!this.isSuperadmin || !this.selectedIds.length) return;
+        if (!this.bulkStatusShopeeKey) {
+          this.$emit('notify', {
+            type: 'error',
+            message: 'Pilih status pesanan Shopee terlebih dahulu.'
+          });
+          return;
+        }
+
+        var statusShopeeId = '';
+        var namaStatusShopee = '';
+        if (this.bulkStatusShopeeKey !== '__clear__') {
+          var matched = this.statusShopeeList.find(
+            function (s) {
+              return s.id === this.bulkStatusShopeeKey;
+            }.bind(this)
+          );
+          if (!matched) {
+            this.$emit('notify', {
+              type: 'error',
+              message: 'Status pesanan Shopee tidak ditemukan.'
+            });
+            return;
+          }
+          statusShopeeId = matched.id;
+          namaStatusShopee = matched.namaStatus;
+        }
+
+        this.bulkStatusShopeeSaving = true;
+        try {
+          var targetCount = this.selectedIds.length;
+          var idsCopy = this.selectedIds.slice();
+          await global.ZcpPesananService.bulkUpdateStatusShopee(idsCopy, {
+            statusShopeeId: statusShopeeId,
+            namaStatusShopee: namaStatusShopee
+          });
+          this.selectedIds = [];
+          this.bulkStatusShopeeKey = '';
+          this.$emit('notify', {
+            type: 'success',
+            message: namaStatusShopee
+              ? 'Status Shopee ' + targetCount + ' pesanan diubah ke "' + namaStatusShopee + '".'
+              : 'Status Shopee ' + targetCount + ' pesanan berhasil dikosongkan.'
+          });
+        } catch (err) {
+          this.$emit('notify', {
+            type: 'error',
+            message: (err && err.message) || 'Gagal melakukan bulk ubah status pesanan Shopee.'
+          });
+        } finally {
+          this.bulkStatusShopeeSaving = false;
+        }
+      },
+      resolveOrderStatusShopeeName: function (order) {
+        if (!order) return '';
+        if (order.statusShopeeId) {
+          for (var i = 0; i < this.statusShopeeList.length; i++) {
+            if (this.statusShopeeList[i].id === order.statusShopeeId) {
+              return this.statusShopeeList[i].namaStatus || order.namaStatusShopee || '';
+            }
+          }
+        }
+        return order.namaStatusShopee || '';
       },
       resolveKategoriByIdOrName: function (kategoriId, fallbackName) {
         if (kategoriId) {
@@ -763,23 +874,29 @@
         <div v-if="!isKaryawan && selectedIds.length > 0" class="card bulk-bar">
           <div class="bulk-bar-info">
             <span class="badge-count">{{ selectedIds.length }} pesanan dipilih</span>
-            <span class="form-hint">Atur tanggal mulai &amp; deadline sekaligus ke semua pesanan terpilih.</span>
+            <span class="form-hint">
+              {{
+                isSuperadmin
+                  ? 'Atur jadwal mulai/deadline atau ubah status pesanan Shopee sekaligus.'
+                  : 'Atur tanggal mulai &amp; deadline sekaligus ke semua pesanan terpilih.'
+              }}
+            </span>
           </div>
 
           <div class="bulk-bar-controls">
             <div class="bulk-date-field">
               <label>Mulai Kerjakan</label>
-              <input v-model="bulkMulai" type="date" class="form-control" :disabled="bulkSaving" />
+              <input v-model="bulkMulai" type="date" class="form-control" :disabled="bulkSaving || bulkStatusShopeeSaving" />
             </div>
             <div class="bulk-date-field">
               <label>Selesai Sebelum</label>
-              <input v-model="bulkDeadline" type="date" class="form-control" :disabled="bulkSaving" />
+              <input v-model="bulkDeadline" type="date" class="form-control" :disabled="bulkSaving || bulkStatusShopeeSaving" />
             </div>
             <div class="action-group">
               <button
                 type="button"
                 class="btn btn-primary"
-                :disabled="bulkSaving"
+                :disabled="bulkSaving || bulkStatusShopeeSaving"
                 @click="applyBulkSchedule"
               >
                 <span v-if="bulkSaving" class="spinner spinner-sm"></span>
@@ -789,10 +906,46 @@
               <button
                 type="button"
                 class="btn btn-secondary"
-                :disabled="bulkSaving"
+                :disabled="bulkSaving || bulkStatusShopeeSaving"
                 @click="clearSelection"
               >
                 Batal
+              </button>
+            </div>
+          </div>
+
+          <div v-if="isSuperadmin" class="bulk-bar-divider"></div>
+
+          <div v-if="isSuperadmin" class="bulk-bar-controls">
+            <div class="bulk-date-field">
+              <label>Status Pesanan Shopee (Superadmin)</label>
+              <select
+                v-model="bulkStatusShopeeKey"
+                class="form-select"
+                :disabled="bulkSaving || bulkStatusShopeeSaving"
+                aria-label="Pilih status pesanan Shopee untuk bulk update"
+              >
+                <option value="" disabled>-- Pilih Status Pesanan Shopee --</option>
+                <option
+                  v-for="st in statusShopeeList"
+                  :key="st.id"
+                  :value="st.id"
+                >
+                  {{ st.namaStatus }}
+                </option>
+                <option value="__clear__">Kosongkan Status Shopee</option>
+              </select>
+            </div>
+            <div class="action-group">
+              <button
+                type="button"
+                class="btn btn-info-solid"
+                :disabled="bulkSaving || bulkStatusShopeeSaving || !bulkStatusShopeeKey"
+                @click="applyBulkStatusShopee"
+              >
+                <span v-if="bulkStatusShopeeSaving" class="spinner spinner-sm"></span>
+                <span v-else class="material-symbols-rounded" style="font-size: 18px;">local_mall</span>
+                <span>Ubah Status Shopee ({{ selectedIds.length }})</span>
               </button>
             </div>
           </div>
@@ -838,6 +991,14 @@
                 <option value="">Semua Kategori</option>
                 <option v-for="kName in kategoriFilterOptions" :key="kName" :value="kName">
                   {{ kName }}
+                </option>
+              </select>
+
+              <select v-model="statusShopeeFilter" class="filter-select" aria-label="Filter status pesanan Shopee">
+                <option value="">Semua Status Shopee</option>
+                <option value="__empty__">Belum Ada Status Shopee</option>
+                <option v-for="sName in statusShopeeFilterOptions" :key="sName" :value="sName">
+                  {{ sName }}
                 </option>
               </select>
 
@@ -930,6 +1091,10 @@
                     <span v-if="order.anggapSablonSelesai" class="status-badge done">
                       <span class="material-symbols-rounded" style="font-size: 14px;">done_all</span>
                       <span>Sablon Selesai (100%)</span>
+                    </span>
+                    <span v-if="resolveOrderStatusShopeeName(order)" class="shopee-status-badge">
+                      <span class="material-symbols-rounded" style="font-size: 13px;">local_mall</span>
+                      <span>{{ resolveOrderStatusShopeeName(order) }}</span>
                     </span>
                     <button
                       v-if="order.fileDesigns && order.fileDesigns.length"
@@ -1105,6 +1270,10 @@
                     <span v-if="order.anggapSablonSelesai" class="status-badge done">
                       <span class="material-symbols-rounded" style="font-size: 14px;">done_all</span>
                       <span>Sablon Selesai (100%)</span>
+                    </span>
+                    <span v-if="resolveOrderStatusShopeeName(order)" class="shopee-status-badge">
+                      <span class="material-symbols-rounded" style="font-size: 13px;">local_mall</span>
+                      <span>{{ resolveOrderStatusShopeeName(order) }}</span>
                     </span>
                     <span class="completed-by-tag">
                       <span class="material-symbols-rounded" style="font-size: 14px;">person</span>

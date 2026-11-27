@@ -8,6 +8,7 @@
     sablon: 'Manajemen Sablon',
     master_produk: 'Master Produk',
     master_kategori_produk: 'Master Kategori Produk',
+    master_status_shopee: 'Master Status Pesanan Shopee',
     master_expedisi: 'Master Expedisi',
     master_asal_pesanan: 'Master Asal Pesanan'
   };
@@ -27,6 +28,8 @@
     namaSisi: 'Daftar Sisi',
     jumlahProduk: 'Jumlah (pcs)',
     namaExpedisi: 'Expedisi',
+    namaStatusShopee: 'Status Pesanan Shopee',
+    namaStatus: 'Nama Status Shopee',
     namaAsal: 'Nama Asal Pesanan',
     templateSisi: 'Template Sisi',
     catatan: 'Catatan',
@@ -70,6 +73,12 @@
         }
       },
       asalPesananList: {
+        type: Array,
+        default: function () {
+          return [];
+        }
+      },
+      statusShopeeList: {
         type: Array,
         default: function () {
           return [];
@@ -381,6 +390,7 @@
               kategoriProdukList: this.kategoriProdukList,
               expedisiList: this.expedisiList,
               asalPesananList: this.asalPesananList,
+              statusShopeeList: this.statusShopeeList,
               pesananList: this.pesananList,
               sablonList: this.sablonList
             }

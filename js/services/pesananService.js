@@ -180,6 +180,8 @@
       fileDesigns: Array.isArray(payload.fileDesigns) ? payload.fileDesigns : [],
       expedisiId: payload.expedisiId || '',
       namaExpedisi: namaExpedisi,
+      statusShopeeId: String(payload.statusShopeeId || '').trim(),
+      namaStatusShopee: String(payload.namaStatusShopee || '').trim(),
       catatan: (payload.catatan || '').trim(),
       anggapSablonSelesai: Boolean(payload.anggapSablonSelesai)
     };
@@ -238,6 +240,8 @@
                 fileDesigns: Array.isArray(data.fileDesigns) ? data.fileDesigns : [],
                 expedisiId: data.expedisiId || '',
                 namaExpedisi: data.namaExpedisi || '',
+                statusShopeeId: data.statusShopeeId || '',
+                namaStatusShopee: data.namaStatusShopee || '',
                 catatan: data.catatan || '',
                 anggapSablonSelesai: Boolean(data.anggapSablonSelesai),
                 tanggalMulai: data.tanggalMulai || '',
@@ -291,6 +295,8 @@
         fileDesigns: clean.fileDesigns,
         expedisiId: clean.expedisiId,
         namaExpedisi: clean.namaExpedisi,
+        statusShopeeId: clean.statusShopeeId,
+        namaStatusShopee: clean.namaStatusShopee,
         catatan: clean.catatan,
         anggapSablonSelesai: clean.anggapSablonSelesai,
         tanggalMulai: '',
@@ -349,6 +355,8 @@
         fileDesigns: clean.fileDesigns,
         expedisiId: clean.expedisiId,
         namaExpedisi: clean.namaExpedisi,
+        statusShopeeId: clean.statusShopeeId,
+        namaStatusShopee: clean.namaStatusShopee,
         catatan: clean.catatan,
         anggapSablonSelesai: clean.anggapSablonSelesai,
         updatedAt: global.ZcpFirebase.serverTimestamp()
@@ -597,6 +605,78 @@
           details: nextVal
             ? 'Mengaktifkan status Anggap Semua Sablon Selesai (ON)'
             : 'Menonaktifkan status Anggap Semua Sablon Selesai (OFF)'
+        });
+      }
+    },
+
+    updateStatusShopee: async function (id, statusData, orderMeta) {
+      var db = getDbOrThrow();
+      if (!id) {
+        throw new Error('ID pesanan tidak valid.');
+      }
+      var statusShopeeId = String((statusData && statusData.statusShopeeId) || '').trim();
+      var namaStatusShopee = String((statusData && statusData.namaStatusShopee) || '').trim();
+
+      await db.collection(PESANAN_COLLECTION).doc(id).update({
+        statusShopeeId: statusShopeeId,
+        namaStatusShopee: namaStatusShopee,
+        updatedAt: global.ZcpFirebase.serverTimestamp()
+      });
+
+      if (global.ZcpActivityLogService) {
+        var label =
+          orderMeta && orderMeta.namaPemesan
+            ? orderMeta.namaPemesan + (orderMeta.namaProduk ? ' (' + orderMeta.namaProduk + ')' : '')
+            : id;
+        await global.ZcpActivityLogService.logActivity({
+          action: 'UPDATE',
+          module: 'Pesanan',
+          targetName: label,
+          details:
+            'Mengubah status pesanan Shopee menjadi ' + (namaStatusShopee || '(Kosong)')
+        });
+      }
+    },
+
+    bulkUpdateStatusShopee: async function (ids, statusData) {
+      var db = getDbOrThrow();
+      var actor =
+        (global.ZcpActivityLogService && global.ZcpActivityLogService.getCurrentActor()) || {};
+      if (actor.role !== 'superadmin') {
+        throw new Error(
+          'Hanya Superadmin yang dapat melakukan bulk ubah status pesanan Shopee.'
+        );
+      }
+      if (!Array.isArray(ids) || !ids.length) {
+        throw new Error('Pilih minimal 1 pesanan untuk bulk ubah status pesanan Shopee.');
+      }
+
+      var statusShopeeId = String((statusData && statusData.statusShopeeId) || '').trim();
+      var namaStatusShopee = String((statusData && statusData.namaStatusShopee) || '').trim();
+      var ts = global.ZcpFirebase.serverTimestamp();
+      var CHUNK_SIZE = 400;
+
+      for (var c = 0; c < ids.length; c += CHUNK_SIZE) {
+        var chunk = ids.slice(c, c + CHUNK_SIZE);
+        var batch = db.batch();
+        for (var i = 0; i < chunk.length; i++) {
+          var ref = db.collection(PESANAN_COLLECTION).doc(chunk[i]);
+          batch.update(ref, {
+            statusShopeeId: statusShopeeId,
+            namaStatusShopee: namaStatusShopee,
+            updatedAt: ts
+          });
+        }
+        await batch.commit();
+      }
+
+      if (global.ZcpActivityLogService) {
+        await global.ZcpActivityLogService.logActivity({
+          action: 'BULK_UPDATE',
+          module: 'Operasional',
+          targetName: ids.length + ' pesanan',
+          details:
+            'Bulk ubah status pesanan Shopee menjadi ' + (namaStatusShopee || '(Kosong)')
         });
       }
     }

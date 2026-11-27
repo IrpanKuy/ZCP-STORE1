@@ -4583,3 +4583,58 @@ textarea {
 .save-toast-progress-fill.is-done {
   background: linear-gradient(90deg, #059669 0%, #10b981 100%);
 }
+
+/* =========================================================
+   Status Pesanan Shopee & Bulk Bar Divider
+   ========================================================= */
+.shopee-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  background: rgba(249, 115, 22, 0.12);
+  color: #ea580c;
+  border: 1px solid rgba(249, 115, 22, 0.3);
+}
+
+[data-theme="dark"] .shopee-status-badge {
+  color: #fb923c;
+  background: rgba(249, 115, 22, 0.2);
+}
+
+.shopee-inline-select {
+  height: 28px;
+  padding: 2px 8px;
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--border-color);
+  background: var(--bg-surface-2);
+  color: var(--text-primary);
+  font-size: 11.5px;
+  font-weight: 600;
+  max-width: 190px;
+  cursor: pointer;
+}
+
+.shopee-inline-select:focus {
+  outline: none;
+  border-color: var(--accent-info);
+}
+
+.shopee-inline-select:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.bulk-bar {
+  flex-wrap: wrap;
+}
+
+.bulk-bar-divider {
+  width: 100%;
+  height: 1px;
+  background: var(--border-color);
+  margin: 2px 0;
+}

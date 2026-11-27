@@ -59,6 +59,7 @@ service cloud.firestore {
                 ])
               )
               || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['anggapSablonSelesai', 'updatedAt'])
+              || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['statusShopeeId', 'namaStatusShopee', 'updatedAt'])
             )
           );
     }
@@ -193,6 +194,13 @@ service cloud.firestore {
       allow read, delete: if isActiveUser();
       allow create, update: if isActiveUser()
         && isNonEmptyString(request.resource.data.namaKategori);
+    }
+
+    // Master Data Status Pesanan Shopee (namaStatus)
+    match /master_status_shopee/{statusId} {
+      allow read, delete: if isActiveUser();
+      allow create, update: if isActiveUser()
+        && isNonEmptyString(request.resource.data.namaStatus);
     }
 
     // Koleksi Pesanan (Karyawan read-only di menu Pesanan; hanya Superadmin boleh membatalkan Selesai)

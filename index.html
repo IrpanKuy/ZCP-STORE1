@@ -67,6 +67,7 @@
         :kategori-count="kategoriProdukList.length"
         :expedisi-count="expedisiList.length"
         :asal-pesanan-count="asalPesananList.length"
+        :status-shopee-count="statusShopeeList.length"
         :borongan-badge-count="pendingBoronganCount"
         :users-count="usersList.length"
         @navigate="navigatePage"
@@ -110,6 +111,7 @@
             :kategori-produk-list="kategoriProdukList"
             :expedisi-list="expedisiList"
             :asal-pesanan-list="asalPesananList"
+            :status-shopee-list="statusShopeeList"
             :loading="loadingPesanan"
             :drive-ready="driveReady"
             :user-role="user.role"
@@ -127,6 +129,7 @@
             :sablon-list="sablonList"
             :produk-list="produkList"
             :kategori-produk-list="kategoriProdukList"
+            :status-shopee-list="statusShopeeList"
             :staff-list="staffList"
             :loading="loadingPesanan"
             :user-role="user.role"
@@ -199,10 +202,12 @@
             :kategori-produk-list="kategoriProdukList"
             :expedisi-list="expedisiList"
             :asal-pesanan-list="asalPesananList"
+            :status-shopee-list="statusShopeeList"
             :loading-produk="loadingProduk"
             :loading-kategori-produk="loadingKategoriProduk"
             :loading-expedisi="loadingExpedisi"
             :loading-asal-pesanan="loadingAsalPesanan"
+            :loading-status-shopee="loadingStatusShopee"
             :default-page-size="defaultPageSize"
             @notify="addToast"
             @request-confirm="openConfirm"
@@ -210,6 +215,7 @@
             @refresh-kategori-produk="loadMasterKategoriProduk"
             @refresh-expedisi="loadMasterExpedisi"
             @refresh-asal-pesanan="loadMasterAsalPesanan"
+            @refresh-status-shopee="loadMasterStatusShopee"
           ></master-data-view>
 
           <akun-karyawan-view
@@ -269,6 +275,7 @@
       :kategori-produk-list="kategoriProdukList"
       :expedisi-list="expedisiList"
       :asal-pesanan-list="asalPesananList"
+      :status-shopee-list="statusShopeeList"
       :pesanan-list="pesananList"
       :sablon-list="sablonList"
       @notify="addToast"
@@ -324,6 +331,7 @@
   <script src="./js/components/MasterKategoriProdukPanel.js"></script>
   <script src="./js/components/MasterExpedisiPanel.js"></script>
   <script src="./js/components/MasterAsalPesananPanel.js"></script>
+  <script src="./js/components/MasterStatusShopeePanel.js"></script>
   <script src="./js/components/MasterDataView.js"></script>
   <script src="./js/components/AkunKaryawanView.js"></script>
   <script src="./js/components/ActivityLogView.js"></script>

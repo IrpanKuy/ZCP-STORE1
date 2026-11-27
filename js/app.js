@@ -79,6 +79,7 @@
         kategoriProdukList: [],
         expedisiList: [],
         asalPesananList: [],
+        statusShopeeList: [],
         pesananList: [],
         sablonList: [],
         boronganRequestsList: [],
@@ -88,6 +89,7 @@
         loadingKategoriProduk: false,
         loadingExpedisi: false,
         loadingAsalPesanan: false,
+        loadingStatusShopee: false,
         loadingPesanan: false,
         loadingSablon: false,
         loadingBoronganRequests: false,
@@ -267,6 +269,7 @@
           this.loadMasterKategoriProduk();
           this.loadMasterExpedisi();
           this.loadMasterAsalPesanan();
+          this.loadMasterStatusShopee();
         }
       },
       openCreateSablonPage: function () {
@@ -446,6 +449,7 @@
         this.loadMasterKategoriProduk();
         this.loadMasterExpedisi();
         this.loadMasterAsalPesanan();
+        this.loadMasterStatusShopee();
         this.loadUsers(false);
         global.ZcpSettingsService.fetchSettings()
           .then(function (cfg) {
@@ -529,6 +533,21 @@
           });
         } finally {
           this.loadingAsalPesanan = false;
+        }
+      },
+      loadMasterStatusShopee: async function () {
+        this.loadingStatusShopee = true;
+        try {
+          this.statusShopeeList = await global.ZcpMasterService.fetchStatusShopee();
+        } catch (err) {
+          this.addToast({
+            type: 'error',
+            message:
+              'Gagal memuat Master Status Pesanan Shopee: ' +
+              ((err && err.message) || 'Akses ditolak')
+          });
+        } finally {
+          this.loadingStatusShopee = false;
         }
       },
       subscribeBoronganRequestsList: function () {
@@ -674,6 +693,7 @@
         this.kategoriProdukList = [];
         this.expedisiList = [];
         this.asalPesananList = [];
+        this.statusShopeeList = [];
         this.pesananList = [];
         this.sablonList = [];
         this.boronganRequestsList = [];
@@ -691,6 +711,7 @@
         this.loadingKategoriProduk = false;
         this.loadingExpedisi = false;
         this.loadingAsalPesanan = false;
+        this.loadingStatusShopee = false;
         this.loadingPesanan = false;
         this.loadingSablon = false;
         this.loadingBoronganRequests = false;

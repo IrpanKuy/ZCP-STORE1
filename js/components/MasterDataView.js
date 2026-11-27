@@ -9,7 +9,8 @@
       MasterProdukPanel: global.ZcpComponents.MasterProdukPanel,
       MasterKategoriProdukPanel: global.ZcpComponents.MasterKategoriProdukPanel,
       MasterExpedisiPanel: global.ZcpComponents.MasterExpedisiPanel,
-      MasterAsalPesananPanel: global.ZcpComponents.MasterAsalPesananPanel
+      MasterAsalPesananPanel: global.ZcpComponents.MasterAsalPesananPanel,
+      MasterStatusShopeePanel: global.ZcpComponents.MasterStatusShopeePanel
     },
     props: {
       produkList: {
@@ -36,10 +37,17 @@
           return [];
         }
       },
+      statusShopeeList: {
+        type: Array,
+        default: function () {
+          return [];
+        }
+      },
       loadingProduk: { type: Boolean, default: false },
       loadingKategoriProduk: { type: Boolean, default: false },
       loadingExpedisi: { type: Boolean, default: false },
       loadingAsalPesanan: { type: Boolean, default: false },
+      loadingStatusShopee: { type: Boolean, default: false },
       defaultPageSize: {
         type: [Number, String],
         default: 10
@@ -51,7 +59,8 @@
       'refresh-produk',
       'refresh-kategori-produk',
       'refresh-expedisi',
-      'refresh-asal-pesanan'
+      'refresh-asal-pesanan',
+      'refresh-status-shopee'
     ],
     data: function () {
       return {
@@ -194,6 +203,19 @@
             <span>Master Asal Pesanan</span>
             <span class="tab-count">{{ asalPesananList.length }}</span>
           </button>
+
+          <button
+            type="button"
+            role="tab"
+            :aria-selected="activeTab === 'status-shopee'"
+            class="tab-btn"
+            :class="{ active: activeTab === 'status-shopee' }"
+            @click="activeTab = 'status-shopee'"
+          >
+            <span class="material-symbols-rounded" style="font-size: 19px;">local_mall</span>
+            <span>Status Pesanan Shopee</span>
+            <span class="tab-count">{{ statusShopeeList.length }}</span>
+          </button>
         </div>
 
         <master-produk-panel
@@ -228,7 +250,7 @@
         ></master-expedisi-panel>
 
         <master-asal-pesanan-panel
-          v-else
+          v-else-if="activeTab === 'asal-pesanan'"
           :asal-pesanan-list="asalPesananList"
           :loading="loadingAsalPesanan"
           :default-page-size="defaultPageSize"
@@ -236,6 +258,16 @@
           @request-confirm="$emit('request-confirm', $event)"
           @changed="$emit('refresh-asal-pesanan')"
         ></master-asal-pesanan-panel>
+
+        <master-status-shopee-panel
+          v-else
+          :status-shopee-list="statusShopeeList"
+          :loading="loadingStatusShopee"
+          :default-page-size="defaultPageSize"
+          @notify="$emit('notify', $event)"
+          @request-confirm="$emit('request-confirm', $event)"
+          @changed="$emit('refresh-status-shopee')"
+        ></master-status-shopee-panel>
       </div>
     `
   };
