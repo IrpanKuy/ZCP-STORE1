@@ -30,6 +30,12 @@
           return [];
         }
       },
+      asalPesananList: {
+        type: Array,
+        default: function () {
+          return [];
+        }
+      },
       statusShopeeList: {
         type: Array,
         default: function () {
@@ -57,6 +63,7 @@
         searchQuery: '',
         statusFilter: 'all',
         kategoriFilter: '',
+        asalFilter: '',
         statusShopeeFilter: '',
         currentPage: 1,
         localPageSize: this.defaultPageSize,
@@ -91,6 +98,9 @@
         this.currentPage = 1;
       },
       kategoriFilter: function () {
+        this.currentPage = 1;
+      },
+      asalFilter: function () {
         this.currentPage = 1;
       },
       statusShopeeFilter: function () {
@@ -190,6 +200,23 @@
         });
         return names.sort();
       },
+      asalFilterOptions: function () {
+        var map = {};
+        var names = [];
+        this.asalPesananList.forEach(function (a) {
+          if (a && a.namaAsal && !map[a.namaAsal]) {
+            map[a.namaAsal] = true;
+            names.push(a.namaAsal);
+          }
+        });
+        this.pesananList.forEach(function (o) {
+          if (o && o.namaAsalPesanan && !map[o.namaAsalPesanan]) {
+            map[o.namaAsalPesanan] = true;
+            names.push(o.namaAsalPesanan);
+          }
+        });
+        return names.sort();
+      },
       statusShopeeFilterOptions: function () {
         var map = {};
         var names = [];
@@ -213,6 +240,7 @@
         var q = this.searchQuery.trim().toLowerCase();
         var filter = this.statusFilter;
         var katFilter = this.kategoriFilter;
+        var asal = this.asalFilter;
         var shopeeFilter = this.statusShopeeFilter;
         var self = this;
 
@@ -228,6 +256,7 @@
             return false;
           }
           if (katFilter && katName !== katFilter) return false;
+          if (asal && order.namaAsalPesanan !== asal) return false;
           if (shopeeFilter === '__empty__' && shopeeName) return false;
           if (shopeeFilter && shopeeFilter !== '__empty__' && shopeeName !== shopeeFilter) {
             return false;
@@ -1019,6 +1048,13 @@
                 <option value="">Semua Kategori</option>
                 <option v-for="kName in kategoriFilterOptions" :key="kName" :value="kName">
                   {{ kName }}
+                </option>
+              </select>
+
+              <select v-model="asalFilter" class="filter-select" aria-label="Filter asal pesanan">
+                <option value="">Semua Asal Pesanan</option>
+                <option v-for="asal in asalFilterOptions" :key="asal" :value="asal">
+                  {{ asal }}
                 </option>
               </select>
 
